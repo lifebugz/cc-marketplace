@@ -1,0 +1,25 @@
+# Personal, per-project instructions - never shared (see CLAUDE.md)
+CLAUDE.local.md
+
+# Claude Code local-scope settings (personal machine state)
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Node - for plugins that bundle JS tooling or MCP servers
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Logs & secrets
+*.log
+.env
+.env.*
+!.env.example

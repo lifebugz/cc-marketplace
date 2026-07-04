@@ -1,0 +1,9 @@
+{
+  "name": "cc-marketplace",
+  "owner": {
+    "name": "lifebugz",
+    "email": "244013463+lifebugz@users.noreply.github.com"
+  },
+  "description": "Personal Claude Code marketplace - a catalog of plugins bundling skills, commands, agents, and hooks.",
+  "plugins": []
+}
