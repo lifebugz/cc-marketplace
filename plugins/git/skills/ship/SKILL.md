@@ -66,7 +66,7 @@ First check `gh pr view --json url` - if a PR already exists for this branch, th
 gh pr create --title "<title>" --body "<body>" [--draft] [--base <branch>]
 ```
 
-Title: the commit subject (or a summary of all commits being merged). Body: a `## Summary` with 1-3 bullets and a `## Test plan` describing how to verify.
+Title: the commit subject (or a summary of all commits being merged). Body: a `## Summary` with 1-3 bullets.
 
 If `gh` is missing, unauthenticated, or there is no GitHub remote, the commit and push still succeeded - report that, explain why the PR step was skipped, and give the compare URL (`<remote-url>/compare/<branch>`) so the user can open the PR manually.
 
