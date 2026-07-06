@@ -9,7 +9,7 @@
     {
       "name": "git",
       "source": "./plugins/git",
-      "description": "Git workflow skills - ship changes with commit, push, and PR in one command."
+      "description": "Git workflow skills - ship (commit + push + PR) and merge (merge the PR + clean up)."
     }
   ]
 }
