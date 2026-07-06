@@ -1,0 +1,8 @@
+{
+  "name": "git",
+  "description": "Git workflow skills - ship changes with commit, push, and PR in one command.",
+  "version": "0.1.0",
+  "author": {
+    "name": "lifebugz"
+  }
+}
