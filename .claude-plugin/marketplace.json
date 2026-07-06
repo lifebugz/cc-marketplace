@@ -5,5 +5,11 @@
     "email": "244013463+lifebugz@users.noreply.github.com"
   },
   "description": "Personal Claude Code marketplace - a catalog of plugins bundling skills, commands, agents, and hooks.",
-  "plugins": []
+  "plugins": [
+    {
+      "name": "git",
+      "source": "./plugins/git",
+      "description": "Git workflow skills - ship (commit + push + PR) and merge (merge the PR + clean up)."
+    }
+  ]
 }
