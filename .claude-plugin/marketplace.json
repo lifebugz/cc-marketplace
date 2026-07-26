@@ -10,6 +10,16 @@
       "name": "git",
       "source": "./plugins/git",
       "description": "Git workflow skills - ship (commit + push + PR) and merge (merge the PR + clean up)."
+    },
+    {
+      "name": "mermaid",
+      "source": {
+        "source": "github",
+        "repo": "lifebugz/cc-mermaid",
+        "ref": "v0.1.0",
+        "sha": "689cbd8bc4f6a8c2bd3e09efc86df39b2ed48f7a"
+      },
+      "description": "Unofficial Mermaid diagram plugin: draft, validate, render, and generate diagrams from code, dependencies and git history."
     }
   ]
 }
