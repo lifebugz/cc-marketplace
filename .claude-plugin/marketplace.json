@@ -14,8 +14,8 @@
     {
       "name": "mermaid",
       "source": {
-        "source": "github",
-        "repo": "lifebugz/cc-mermaid",
+        "source": "url",
+        "url": "https://github.com/lifebugz/cc-mermaid.git",
         "ref": "v0.1.0",
         "sha": "689cbd8bc4f6a8c2bd3e09efc86df39b2ed48f7a"
       },
