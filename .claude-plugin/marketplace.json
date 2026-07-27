@@ -1,4 +1,5 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "cc-marketplace",
   "owner": {
     "name": "lifebugz",
@@ -13,13 +14,17 @@
     },
     {
       "name": "mermaid",
+      "description": "Unofficial Mermaid diagram plugin: draft, validate, render, and generate diagrams from code, dependencies and git history.",
+      "author": {
+        "name": "lifebugz"
+      },
+      "category": "design",
       "source": {
         "source": "url",
         "url": "https://github.com/lifebugz/cc-mermaid.git",
-        "ref": "v0.1.0",
-        "sha": "689cbd8bc4f6a8c2bd3e09efc86df39b2ed48f7a"
+        "sha": "6407bfae0c071977dcdcf0943bdee0ecee94614d"
       },
-      "description": "Unofficial Mermaid diagram plugin: draft, validate, render, and generate diagrams from code, dependencies and git history."
+      "homepage": "https://github.com/lifebugz/cc-mermaid"
     }
   ]
 }
