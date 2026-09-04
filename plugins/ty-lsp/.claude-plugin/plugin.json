@@ -1,0 +1,18 @@
+{
+  "name": "ty-lsp",
+  "description": "Python code intelligence for Claude via ty, Astral's extremely fast Rust type checker and language server. Requires the ty binary in PATH.",
+  "version": "0.1.0",
+  "author": {
+    "name": "lifebugz"
+  },
+  "homepage": "https://github.com/lifebugz/cc-marketplace/tree/main/plugins/ty-lsp",
+  "license": "MIT",
+  "keywords": [
+    "lsp",
+    "python",
+    "ty",
+    "astral",
+    "type-checking",
+    "code-intelligence"
+  ]
+}

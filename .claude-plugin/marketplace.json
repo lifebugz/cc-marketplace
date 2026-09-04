@@ -5,7 +5,7 @@
     "name": "lifebugz",
     "email": "244013463+lifebugz@users.noreply.github.com"
   },
-  "description": "Personal Claude Code marketplace - a catalog of plugins bundling skills, commands, agents, and hooks.",
+  "description": "Personal Claude Code marketplace - a catalog of plugins bundling skills, commands, agents, hooks, and LSP servers.",
   "plugins": [
     {
       "name": "git",
@@ -25,6 +25,12 @@
         "sha": "6407bfae0c071977dcdcf0943bdee0ecee94614d"
       },
       "homepage": "https://github.com/lifebugz/cc-mermaid"
+    },
+    {
+      "name": "ty-lsp",
+      "description": "Python code intelligence for Claude via ty, Astral's extremely fast Rust type checker and language server. Requires the ty binary in PATH.",
+      "category": "development",
+      "source": "./plugins/ty-lsp"
     }
   ]
 }

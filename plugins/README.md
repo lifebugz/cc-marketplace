@@ -9,6 +9,7 @@ plugin sources so marketplace entries can use tidy `"./plugins/<name>"` paths.
 plugins/<name>/
 ├── .claude-plugin/
 │   └── plugin.json         # manifest - only `name` is required
+├── .lsp.json               # language server configs (optional)
 ├── skills/<skill>/SKILL.md # preferred component type for new work
 ├── commands/<cmd>.md       # flat-file slash commands (optional)
 ├── agents/<agent>.md       # subagents (optional)
@@ -16,8 +17,9 @@ plugins/<name>/
 └── scripts/                # helpers, referenced via ${CLAUDE_PLUGIN_ROOT}
 ```
 
-Only `plugin.json` may sit inside `.claude-plugin/`. Every component folder must
-be at the plugin root, or its components will silently fail to load.
+Only `plugin.json` may sit inside `.claude-plugin/`. Every component folder, and
+root-level component files such as `.lsp.json`, must be at the plugin root, or
+its components will silently fail to load.
 
 ## Register a plugin
 

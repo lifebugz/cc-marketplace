@@ -1,8 +1,9 @@
 # cc-marketplace
 
 A personal [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces):
-a catalog of plugins that bundle skills, slash commands, subagents, hooks, and
-MCP servers. Add the marketplace once, then install any plugin from it by name.
+a catalog of plugins that bundle skills, slash commands, subagents, hooks,
+MCP servers, and LSP servers. Add the marketplace once, then install any plugin
+from it by name.
 
 ## Use this marketplace
 
@@ -31,6 +32,7 @@ cc-marketplace/
 ├── plugins/                    # one subdirectory per plugin
 │   └── <plugin-name>/
 │       ├── .claude-plugin/plugin.json
+│       ├── .lsp.json
 │       ├── skills/  commands/  agents/  hooks/  scripts/
 ├── CLAUDE.md                   # conventions & gotchas (loaded by Claude Code)
 ├── CLAUDE.local.md             # personal notes (git-ignored)
