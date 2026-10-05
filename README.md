@@ -13,10 +13,10 @@ MCP servers. Add the marketplace once, then install any plugin from it by name.
 
 # Browse and install
 /plugin                                             # interactive browser
-/plugin install <plugin-name>@cc-marketplace
+/plugin install <plugin-name>@lifebugz
 
 # Keep it current
-/plugin marketplace update cc-marketplace
+/plugin marketplace update lifebugz
 ```
 
 > No plugins are published yet - this repo starts as a clean marketplace shell.
@@ -63,7 +63,7 @@ cc-marketplace/
    claude plugin validate .
    ```
    Then, inside Claude Code: `/plugin marketplace add ./` and
-   `/plugin install my-plugin@cc-marketplace`. Run `/reload-plugins` after edits.
+   `/plugin install my-plugin@lifebugz`. Run `/reload-plugins` after edits.
 
 See [`plugins/README.md`](plugins/README.md) for the per-plugin layout and
 [`CLAUDE.md`](CLAUDE.md) for the full conventions and validation rules.

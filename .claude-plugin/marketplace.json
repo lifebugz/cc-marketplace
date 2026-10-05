@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "cc-marketplace",
+  "name": "lifebugz",
   "owner": {
     "name": "lifebugz",
     "email": "244013463+lifebugz@users.noreply.github.com"
