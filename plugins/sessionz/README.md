@@ -5,6 +5,14 @@ session on your machine, with its status and folder. Press a row and that
 session's terminal tab comes to the front. The pane stays open and refreshes
 itself every 3 seconds.
 
+![The /tabs pane docked beside the Claude Code transcript, listing ten sessions with their status, name, folder and terminal tab](docs/pane.png)
+
+The pictures on this page use demo sessions with made-up names. The pane, the
+tab matching and the keys are the mod's real output.
+
+<details>
+<summary>The same pane as text</summary>
+
 ```text
 Sessions · 1 waiting · 2 busy · 6 idle · 1 background
 1: ● waiting  shop-api-3f                                     Ghostty tab 3
@@ -28,6 +36,8 @@ Sessions · 1 waiting · 2 busy · 6 idle · 1 background
    · bg       nightly-dependency-audit                           background
               ~/projects/infra · blocked
 ```
+
+</details>
 
 ## Install
 
@@ -60,6 +70,11 @@ waits for, such as `permission prompt`.
 A key stays with its session while the pane is open, even when the rows
 re-sort. A key is given to a new session only after its old session ends.
 
+![Typing /tabs opens the pane; a few seconds later fix-login-timeout starts waiting for input, moves to the top of the list and keeps its key 2](docs/live.gif)
+
+The list refreshes every 3 seconds. Here `fix-login-timeout` starts waiting
+for input, moves to the top, and keeps its key `2`.
+
 Dim rows have no key because they cannot switch: this session, background
 sessions (they have no terminal), and the cases under [Limits](#limits). The
 second line says why.
@@ -84,6 +99,11 @@ A session with no name shows a default name such as `marketplace-0a`. With
 name from Haiku after its first real request, such as `add-billing-export`.
 The name shows in the tab title, in `claude agents`, and in this pane, so
 every tab is easy to find.
+
+![The first request in an unnamed session; a moment later the pane's "this" row and the prompt's border show the new name add-billing-csv-export](docs/naming.gif)
+
+The first request in this session gets the name `add-billing-csv-export`.
+The pane's `this` row and the prompt's border show it a few seconds later.
 
 - It names a session only once, only from a prompt you typed, and never from
   a slash command, a prompt under 15 characters, a `/loop` or scheduled
