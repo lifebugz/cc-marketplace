@@ -1,0 +1,26 @@
+{
+  "name": "lifebugz-marketplace-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types:sync": "sh scripts/sync-types.sh",
+    "types:check": "sh scripts/check-types-version.sh",
+    "typecheck": "sh scripts/each-mod.sh typecheck",
+    "lint": "sh scripts/each-mod.sh lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "sh scripts/each-mod.sh test",
+    "validate": "sh scripts/each-mod.sh validate",
+    "check": "bun run types:check && bun run typecheck && bun run lint && bun run format:check && bun run test && bun run validate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0",
+    "typescript-eslint": "^8.71.1",
+    "typescript-latest": "npm:typescript@^7.0.2"
+  }
+}
