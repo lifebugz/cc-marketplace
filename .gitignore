@@ -23,3 +23,6 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Types the Claude Code engine writes beside a mod when it loads it
+plugins/*/.claude-plugin/types/

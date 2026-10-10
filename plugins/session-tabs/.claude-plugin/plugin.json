@@ -1,0 +1,17 @@
+{
+  "name": "session-tabs",
+  "version": "0.1.0",
+  "description": "Adds /tabs: a live pane listing every Claude Code session with its status and folder. Press a row to bring that session's terminal tab to the front (Ghostty, iTerm2, Terminal, tmux, VS Code).",
+  "author": {
+    "name": "lifebugz"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoName": {
+      "type": "boolean",
+      "title": "Name unnamed sessions with Haiku",
+      "description": "Give a session with no name a short name from Haiku after its first real prompt, so its tab title and the /tabs list show what it is about.",
+      "default": true
+    }
+  }
+}
