@@ -3,6 +3,7 @@ CLAUDE.local.md
 
 # Claude Code local-scope settings (personal machine state)
 .claude/settings.local.json
+.claude/worktrees/
 
 # macOS
 .DS_Store
