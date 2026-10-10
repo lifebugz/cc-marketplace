@@ -12,6 +12,8 @@ import {
 import { hostOf, parsePs, parseTmuxClients, pickClient } from './sessions'
 
 export const RUN_TIMEOUT_MS = 5000
+/** A first switch to an app waits while macOS asks the person for permission. */
+export const SWITCH_TIMEOUT_MS = 60_000
 export const VSCODE_SETTLE_MS = 300
 export const PS_ARGV: readonly string[] = [
   'ps',

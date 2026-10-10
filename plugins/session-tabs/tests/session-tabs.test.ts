@@ -57,6 +57,7 @@ interface World {
   clock: MockClock
   agents: unknown[]
   argvs: string[][]
+  timeouts: (number | undefined)[]
   toasts: string[]
   opened: unknown[]
   missing: Set<string>
@@ -91,6 +92,7 @@ function setup(on: On): World {
     clock: mock.clock(on),
     agents: [...AGENTS],
     argvs: [],
+    timeouts: [],
     toasts: [],
     opened: [],
     missing: new Set(),
@@ -125,6 +127,7 @@ function setup(on: On): World {
   on('process.run', (_$, e) => {
     const argv = [...e.argv]
     world.argvs.push(argv)
+    world.timeouts.push(e.init?.timeoutMs)
     const program = argv[0] ?? ''
     return world.missing.has(program)
       ? { deny: `${program}: not found` }
@@ -210,7 +213,9 @@ describe('the /tabs pane', () => {
     const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
     world.argvs.length = 0
 
+    world.timeouts.length = 0
     await pane.press({ key: 'go-iterm' })
+    expect(world.timeouts).toEqual([60_000])
     expect(world.argvs).toEqual([
       [
         'osascript',
@@ -263,6 +268,7 @@ describe('refreshing', () => {
     const world = setup(on)
     await openTabs($)
     expect(world.rowWrites).toBe(1)
+    expect(new Set(world.timeouts)).toEqual(new Set([5000]))
     await world.clock.advance(3000)
     await world.clock.advance(3000)
     expect(agentRuns(world)).toBe(3)

@@ -7,7 +7,7 @@ import type {
 } from 'claude-code'
 
 import type { Row } from '../types'
-import { RUN_TIMEOUT_MS, switchTo, type Io } from './hosts'
+import { RUN_TIMEOUT_MS, SWITCH_TIMEOUT_MS, switchTo, type Io } from './hosts'
 import {
   buildNameRequest,
   isTypedPrompt,
@@ -81,11 +81,11 @@ function debug($: EngineInterface, text: string): void {
   $.ui.log(text, { to: 'debug' })
 }
 
-function ioOf($: EngineInterface): Io {
+function ioOf($: EngineInterface, timeoutMs: number): Io {
   return {
     run: async argv => {
       try {
-        return await $.process.run(argv, { timeoutMs: RUN_TIMEOUT_MS })
+        return await $.process.run(argv, { timeoutMs })
       } catch (error) {
         return `${argv[0] ?? ''} did not run: ${String(error)}`
       }
@@ -98,7 +98,7 @@ function ioOf($: EngineInterface): Io {
 async function worldIoOf($: EngineInterface): Promise<WorldIo> {
   const home = (await $.env.get('HOME')) ?? ''
   return {
-    ...ioOf($),
+    ...ioOf($, RUN_TIMEOUT_MS),
     home,
     selfId: await $.session.id(),
     canSwitch: () => $.fs.exists('/usr/bin/osascript'),
@@ -174,7 +174,7 @@ async function switchRow($: EngineInterface, row: SwitchRow): Promise<void> {
   if (live.isSwitching) return
   live.isSwitching = true
   try {
-    const result = await switchTo(ioOf($), row.target)
+    const result = await switchTo(ioOf($, SWITCH_TIMEOUT_MS), row.target)
     if (!result.ok) {
       $.ui.toast(result.message, { timeoutMs: ERROR_TOAST_MS })
       return

@@ -331,6 +331,21 @@ describe('rows', () => {
     })
   })
 
+  test('a tmux pane on another tmux server, or no pane list, cannot switch', () => {
+    const elsewhere = buildRows(
+      worldOf({ panes: parseTmuxPanes(PANES).slice(1) }),
+    )
+    expect(rowFor(elsewhere, 'tmux')).toMatchObject({
+      kind: 'stuck',
+      reason: 'tmux: not on the default server',
+    })
+    const unread = buildRows(worldOf({ panes: undefined }))
+    expect(rowFor(unread, 'tmux')).toMatchObject({
+      kind: 'stuck',
+      reason: 'tmux: could not list its panes',
+    })
+  })
+
   test('without osascript no live row can switch', () => {
     const rows = buildRows(worldOf({ canSwitch: false }))
     expect(rows.filter(row => row.kind === 'switch')).toHaveLength(0)

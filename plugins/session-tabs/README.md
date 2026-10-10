@@ -101,11 +101,14 @@ Turn it off in `/config` (**Name unnamed sessions with Haiku**), or set
 
 ## Permissions
 
-The first time the mod controls iTerm2 or Terminal.app, macOS asks whether
-the app that runs Claude Code (for example Ghostty) may control it. If you
-answered **Don't Allow**, a press shows a toast; allow it again in **System
-Settings → Privacy & Security → Automation**, under the app Claude Code runs
-in.
+The first time the mod controls another app, macOS asks whether the app that
+runs Claude Code (for example Ghostty) may control it. This happens for
+iTerm2 and Terminal.app, and for Ghostty when Claude Code itself runs in a
+different app. A press waits up to 60 seconds for your answer, then switches.
+
+If you answered **Don't Allow**, a press shows a toast instead. Allow it again
+in **System Settings → Privacy & Security → Automation**, under the app Claude
+Code runs in.
 
 ## Limits
 
@@ -119,8 +122,9 @@ in.
   puts the old title back, and switches to it. You may see that tab's title
   flash for under a second. After that the mod remembers the tab, and the row
   shows its number.
-- tmux: the default server only. A tmux session with no client attached shows
-  `tmux: not attached`.
+- tmux: the default server only. A session on another tmux server (started
+  with `tmux -L` or `-S`) shows `tmux: not on the default server`, and one with
+  no client attached shows `tmux: not attached`.
 - VS Code: the stable app only, not Insiders, Cursor or other forks (those rows
   say they cannot switch). The integrated terminal only brings the window
   forward.
@@ -136,10 +140,11 @@ to Haiku on your own account, the same way the session itself uses the model.
 
 ## Develop
 
-Tested with Claude Code 2.1.296 on macOS 27.0.1 with Ghostty 1.3.1 and
-tmux 3.8. iTerm2 (3.7.4), Terminal.app (2.15) and VS Code (1.141.0) are
-installed on that machine; their switching is covered by tests but was not
-driven live.
+Tested live with Claude Code 2.1.296 on macOS 27.0.1: Ghostty 1.3.1 (known
+tabs and the marker), tmux 3.8 attached in a Ghostty tab, iTerm2 3.7.4 (with
+the Automation denial toast), Terminal.app 2.15, and the Claude Code panel in
+VS Code 1.141.0. A session in VS Code's integrated terminal is covered by tests
+only.
 
 ```shell
 bun install

@@ -411,7 +411,12 @@ function placeOf(agent: Agent, host: Host, world: World): Placed {
         return {
           place: 'tmux',
           order: 4e6,
-          target: { reason: 'tmux: pane not found' },
+          target: {
+            reason:
+              world.panes === undefined
+                ? 'tmux: could not list its panes'
+                : 'tmux: not on the default server',
+          },
         }
       }
       const place = `tmux ${pane.session}:${String(pane.window)}`
