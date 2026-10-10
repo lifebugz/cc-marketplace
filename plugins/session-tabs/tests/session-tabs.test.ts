@@ -64,6 +64,7 @@ interface World {
   scriptReply: string
   rowWrites: number
   replyAfterMs: number
+  isPaneOpen: boolean
   reply: ModelCompleteResult
   asked: string[]
 }
@@ -99,6 +100,7 @@ function setup(on: On): World {
     scriptReply: '{"ok":true}',
     rowWrites: 0,
     replyAfterMs: 0,
+    isPaneOpen: false,
     reply: named('add-billing-csv-export'),
     asked: [],
   }
@@ -111,7 +113,19 @@ function setup(on: On): World {
     world.opened.push(e)
     return { value: { isPlaced: true } }
   })
-  on('ui.panes', () => ({ value: [] }))
+  on('ui.panes', () => ({
+    value: world.isPaneOpen
+      ? [
+          {
+            id: PANE_ID,
+            title: 'Sessions',
+            isShown: true,
+            isFocused: false,
+            isPlaced: true,
+          },
+        ]
+      : [],
+  }))
   on('ui.close', () => ({ value: undefined }))
   on('fs.exists', () => ({ value: true }))
   on('fs.list', (_$, e) => ({ deny: `ENOENT: ${e.path}` }))
@@ -292,6 +306,31 @@ describe('refreshing', () => {
       expect(agentRuns(world)).toBe(2)
     },
   )
+
+  test('after a reload with the pane still open, polling starts again', async ($, on) => {
+    const world = setup(on)
+    world.isPaneOpen = true
+    await $.session.start({
+      cwd: '/work',
+      surface: 'terminal',
+      isInteractive: true,
+    })
+    await world.clock.settle()
+    expect(agentRuns(world)).toBe(1)
+    await world.clock.advance(3000)
+    expect(agentRuns(world)).toBe(2)
+  })
+
+  test('a session start with no pane open does not poll', async ($, on) => {
+    const world = setup(on)
+    await $.session.start({
+      cwd: '/work',
+      surface: 'terminal',
+      isInteractive: true,
+    })
+    await world.clock.advance(9000)
+    expect(agentRuns(world)).toBe(0)
+  })
 
   test('a hotkey stays with its session when the rows re-sort', async ($, on) => {
     const world = setup(on)
