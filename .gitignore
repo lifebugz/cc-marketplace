@@ -13,6 +13,9 @@ CLAUDE.local.md
 *.swp
 *~
 
+# Mod type declarations Claude Code rewrites on every load, for one build
+plugins/*/.claude-plugin/types/
+
 # Node - for plugins that bundle JS tooling or MCP servers
 node_modules/
 npm-debug.log*
@@ -23,3 +26,9 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Plugin eval results, written by each `claude plugin eval` run
+plugins/*/evals/results/
+# A resumed case writes its whole session beside history.jsonl, account data included
+plugins/*/evals/*/*.jsonl
+!plugins/*/evals/*/history.jsonl

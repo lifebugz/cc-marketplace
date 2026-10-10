@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: one-task-not-two
+context:
+  scaffold_script: scaffold.sh
