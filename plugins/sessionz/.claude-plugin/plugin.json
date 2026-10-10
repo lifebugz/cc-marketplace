@@ -1,5 +1,5 @@
 {
-  "name": "session-tabs",
+  "name": "sessionz",
   "version": "0.1.0",
   "description": "Adds /tabs: a live pane listing every Claude Code session with its status and folder. Press a row to bring that session's terminal tab to the front (Ghostty, iTerm2, Terminal, tmux, VS Code).",
   "author": {

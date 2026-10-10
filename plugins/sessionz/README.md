@@ -1,4 +1,4 @@
-# session-tabs
+# sessionz
 
 A Claude Code mod that adds `/tabs`: a live pane listing every Claude Code
 session on your machine, with its status and folder. Press a row and that
@@ -34,7 +34,7 @@ Sessions · 1 waiting · 2 busy · 6 idle · 1 background
 Type this at the Claude Code prompt in a terminal:
 
 ```text
-/plugin install session-tabs --marketplace lifebugz/cc-marketplace
+/plugin install sessionz --marketplace lifebugz/cc-marketplace
 ```
 
 Answer `y` to add the marketplace, then pick a scope (the user scope is the
@@ -148,7 +148,7 @@ only.
 
 ```shell
 bun install
-claude --plugin-dir plugins/session-tabs   # once, to lay .claude-plugin/types/
+claude --plugin-dir plugins/sessionz   # once, to lay .claude-plugin/types/
 bun run check
 ```
 

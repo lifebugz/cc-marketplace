@@ -90,8 +90,8 @@ export function readReply(ran: ProcessRunResult): Reply {
 
 export function failureText(app: string, failure: Failure): string {
   return failure.number !== null && PERMISSION_ERRORS.includes(failure.number)
-    ? `session-tabs: macOS did not let Claude Code control ${app}. Allow it in System Settings → Privacy & Security → Automation, under the app Claude Code runs in.`
-    : `session-tabs: could not switch to ${app}: ${failure.error}`
+    ? `sessionz: macOS did not let Claude Code control ${app}. Allow it in System Settings → Privacy & Security → Automation, under the app Claude Code runs in.`
+    : `sessionz: could not switch to ${app}: ${failure.error}`
 }
 
 /** The outside world as switching needs it; register.tsx builds it from `$`. */
@@ -197,12 +197,12 @@ async function switchTmux(
 async function openApp(io: Io, app: string): Promise<SwitchResult> {
   const ran = await io.run(['open', '-a', app])
   if (typeof ran === 'string' || ran.exitCode !== 0) {
-    return { ok: false, message: `session-tabs: could not open ${app}` }
+    return { ok: false, message: `sessionz: could not open ${app}` }
   }
   return {
     ok: true,
     terminalId: null,
-    note: 'session-tabs: VS Code is in front; pick the terminal tab there.',
+    note: 'sessionz: VS Code is in front; pick the terminal tab there.',
   }
 }
 
@@ -214,13 +214,13 @@ async function openVsCodePanel(
 ): Promise<SwitchResult> {
   const window = await io.run(['open', '-a', app, cwd])
   if (typeof window === 'string' || window.exitCode !== 0) {
-    return { ok: false, message: `session-tabs: could not open ${app}` }
+    return { ok: false, message: `sessionz: could not open ${app}` }
   }
   await io.sleep(VSCODE_SETTLE_MS)
   const uri = `vscode://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`
   const tab = await io.run(['open', uri])
   if (typeof tab === 'string' || tab.exitCode !== 0) {
-    return { ok: false, message: 'session-tabs: VS Code did not open the tab' }
+    return { ok: false, message: 'sessionz: VS Code did not open the tab' }
   }
   return DONE
 }

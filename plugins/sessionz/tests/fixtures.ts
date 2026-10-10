@@ -84,7 +84,7 @@ export const AGENTS = [
   agent({
     sessionId: SELF,
     pid: 109,
-    name: 'session-tabs-mod',
+    name: 'sessionz-mod',
     cwd: `${HOME}/projects/marketplace`,
   }),
   agent({
@@ -151,7 +151,7 @@ export const GHOSTTY: readonly GhosttyTerminal[] = [
   terminal(1, 'T-shell', '~/projects/shop', `${HOME}/projects/shop`),
   terminal(2, 'T-named', '✳ fix-login-timeout', `${HOME}/projects/shop`),
   terminal(3, 'T-api', '◐ Refactor the API layer', `${HOME}/projects/api`),
-  terminal(4, 'T-self', '⠋ session-tabs-mod', `${HOME}/projects/marketplace`),
+  terminal(4, 'T-self', '⠋ sessionz-mod', `${HOME}/projects/marketplace`),
   terminal(5, 'T-docs-a', '✳ Draft the docs', `${HOME}/projects/docs`),
   terminal(6, 'T-docs-b', '✳ Review the docs', `${HOME}/projects/docs`),
   terminal(7, 'T-tmux', 'tmux', HOME),

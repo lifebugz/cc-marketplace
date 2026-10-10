@@ -27,8 +27,8 @@
       "homepage": "https://github.com/lifebugz/cc-mermaid"
     },
     {
-      "name": "session-tabs",
-      "source": "./plugins/session-tabs",
+      "name": "sessionz",
+      "source": "./plugins/sessionz",
       "description": "Adds /tabs: a live pane of every Claude Code session with its status and folder. Press a row to bring that session's tab to the front (Ghostty, iTerm2, Terminal, tmux, VS Code).",
       "author": {
         "name": "lifebugz"

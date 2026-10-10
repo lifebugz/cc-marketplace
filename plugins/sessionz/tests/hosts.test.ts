@@ -11,7 +11,7 @@ import {
 import type { Target } from '../types'
 import { CLIENTS, PS, ran } from './fixtures'
 
-const ROOT = '/plugins/session-tabs'
+const ROOT = '/plugins/sessionz'
 const SCRIPT = ['osascript', '-l', 'JavaScript', `${ROOT}/scripts/terminals.js`]
 const VSCODE = '/Applications/Visual Studio Code.app'
 
@@ -75,7 +75,7 @@ describe('reading what osascript printed', () => {
       )
     }
     expect(failureText('iTerm2', { error: 'boom', number: -1 })).toBe(
-      'session-tabs: could not switch to iTerm2: boom',
+      'sessionz: could not switch to iTerm2: boom',
     )
   })
 })
@@ -196,7 +196,7 @@ describe('switching runs the right commands per host', () => {
     ).toEqual({
       ok: false,
       message:
-        'session-tabs: could not switch to Terminal: osascript did not run: not found',
+        'sessionz: could not switch to Terminal: osascript did not run: not found',
     })
   })
 })

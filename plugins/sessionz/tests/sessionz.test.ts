@@ -25,8 +25,8 @@ import {
   SELF,
 } from './fixtures'
 
-const PLUGIN = 'session-tabs'
-const PANE_ID = 'session-tabs'
+const PLUGIN = 'sessionz'
+const PANE_ID = 'sessionz'
 const SURFACES = ['terminal', 'desktop'] as const
 const PANE = {
   plugin: PLUGIN,
@@ -164,7 +164,7 @@ function setup(on: On): World {
  */
 const closer: Register = on => {
   on('command.run', { command: 'close-pane' }, async $ => {
-    await $.ui.close({ id: 'session-tabs' })
+    await $.ui.close({ id: 'sessionz' })
     return {}
   })
 }
@@ -209,7 +209,7 @@ describe('the /tabs pane', () => {
       ).toBeDefined()
       expect(await pane.find({ key: `go-${SELF}` })).toBeUndefined()
       expect(
-        await pane.find({ type: 'Text', text: /○ this +session-tabs-mod/ }),
+        await pane.find({ type: 'Text', text: /○ this +sessionz-mod/ }),
       ).toBeDefined()
       expect(
         await pane.find({

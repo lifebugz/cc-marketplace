@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "session-tabs",
+      "name": "sessionz",
       "devDependencies": {
         "eslint": "^10.12.0",
         "eslint-config-prettier": "^10.1.8",

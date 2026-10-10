@@ -118,7 +118,7 @@ function focusGhosttyTty(tty) {
   const titles = ghostty.terminals.name()
   /** @type {Map<string, string>} */
   const before = new Map(ids.map((id, i) => [id, titles[i] ?? '']))
-  const marker = `session-tabs ${tty} ${String(Date.now())}`
+  const marker = `sessionz ${tty} ${String(Date.now())}`
 
   writeTitle(tty, marker)
   let found = undefined

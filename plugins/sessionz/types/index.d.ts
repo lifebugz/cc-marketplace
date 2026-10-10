@@ -39,7 +39,7 @@ export type Row =
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-tabs': {
+    sessionz: {
       rows: Row[]
       /** Session id → the hotkey it keeps while the pane is open. */
       keys: Record<string, string>

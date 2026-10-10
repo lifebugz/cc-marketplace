@@ -1,11 +1,11 @@
 {
-  "name": "session-tabs",
+  "name": "sessionz",
   "private": true,
   "type": "module",
   "scripts": {
     "typecheck": "bunx -p typescript@latest tsc -p . && bunx -p typescript@latest tsc -p scripts",
     "lint": "eslint --max-warnings 0 .",
-    "format:check": "cd ../.. && prettier --check plugins/session-tabs",
+    "format:check": "cd ../.. && prettier --check plugins/sessionz",
     "test": "claude plugin test .",
     "validate": "claude plugin validate .",
     "check": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run validate"

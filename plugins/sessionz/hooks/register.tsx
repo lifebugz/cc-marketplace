@@ -29,7 +29,7 @@ import {
 type SwitchRow = Extract<Row, { kind: 'switch' }>
 type PromptSubmit = ClassicEventOf['classic.UserPromptSubmit']
 
-const PANE = 'session-tabs'
+const PANE = 'sessionz'
 const REFRESH_MS = 3000
 const NAME_WAIT_MS = 2000
 const NAME_TIMEOUT_MS = 10_000
@@ -39,13 +39,13 @@ const ERROR_TOAST_MS = 8000
 const HOTKEY_WIDTH = 3
 const WIDE_PANE = 60
 
-const rowsState = atom({ plugin: 'session-tabs', key: 'rows' } as const, [])
-const keysState = atom({ plugin: 'session-tabs', key: 'keys' } as const, {})
+const rowsState = atom({ plugin: 'sessionz', key: 'rows' } as const, [])
+const keysState = atom({ plugin: 'sessionz', key: 'keys' } as const, {})
 const refreshedState = atom(
-  { plugin: 'session-tabs', key: 'refreshedAt' } as const,
+  { plugin: 'sessionz', key: 'refreshedAt' } as const,
   null,
 )
-const errorState = atom({ plugin: 'session-tabs', key: 'error' } as const, null)
+const errorState = atom({ plugin: 'sessionz', key: 'error' } as const, null)
 
 interface Live {
   autoName: boolean
@@ -304,7 +304,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'tabs' }, async $ => {
     const opened = await $.ui.open({ id: PANE, title: 'Sessions', focus: true })
     if (!opened.isPlaced) {
-      return { text: `session-tabs: the pane did not open: ${opened.reason}` }
+      return { text: `sessionz: the pane did not open: ${opened.reason}` }
     }
     await startPolling($)
     return {}
