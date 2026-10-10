@@ -80,11 +80,11 @@ declare function Application(name: 'com.apple.Terminal'): TerminalApp
 declare function delay(seconds: number): void
 
 interface NSData {
-  readonly length: number
+  readonly length: string
 }
 
 interface NSString {
-  dataUsingEncoding(encoding: number): NSData
+  dataUsingEncoding(encoding: string): NSData
 }
 
 interface NSFileHandle {
@@ -97,7 +97,8 @@ interface ObjCBridge {
   NSFileHandle: {
     fileHandleForWritingAtPath(path: string): NSFileHandle
   }
-  NSUTF8StringEncoding: number
+  /** JXA hands every NSUInteger over as a string: this is "4". */
+  NSUTF8StringEncoding: string
 }
 
 declare const $: ObjCBridge
