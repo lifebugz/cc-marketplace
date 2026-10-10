@@ -13,6 +13,9 @@ CLAUDE.local.md
 *.swp
 *~
 
+# Mod type declarations Claude Code rewrites on every load, for one build
+plugins/*/.claude-plugin/types/
+
 # Node - for plugins that bundle JS tooling or MCP servers
 node_modules/
 npm-debug.log*
