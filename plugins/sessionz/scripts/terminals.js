@@ -1,4 +1,3 @@
-// @ts-check
 ObjC.import('Foundation')
 
 const MARKER_POLLS = 10
@@ -217,10 +216,10 @@ function dispatch(command, arg) {
 }
 
 /**
- * @param {string[]} argv
+ * @param {readonly string[]} argv
  * @returns {string}
  */
-function run(argv) {
+globalThis.run = function (argv) {
   try {
     return JSON.stringify(dispatch(argv[0] ?? '', argv[1] ?? ''))
   } catch (error) {

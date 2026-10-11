@@ -106,3 +106,6 @@ declare const $: ObjCBridge
 declare const ObjC: {
   import(framework: string): void
 }
+
+/** osascript calls the script's run(argv) and prints what it returns. */
+declare function run(argv: readonly string[]): string
