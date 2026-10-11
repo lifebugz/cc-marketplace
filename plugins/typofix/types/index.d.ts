@@ -1,15 +1,15 @@
 export interface TypoIssue {
-  id: string
-  original: string
-  choices: string[]
-  kind: 'spelling' | 'grammar'
+  readonly id: string
+  readonly original: string
+  readonly choices: readonly string[]
+  readonly kind: 'spelling' | 'grammar'
 }
 
 export type Rephrase =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'ready'; rewrites: string[] }
-  | { status: 'failed'; reason: string }
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly rewrites: readonly string[] }
+  | { readonly status: 'failed'; readonly reason: string }
 
 declare module 'claude-code' {
   interface PluginState {

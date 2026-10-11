@@ -82,10 +82,10 @@ const ran = (stdout: string, exitCode = 0): ProcessRunResult => ({
 
 const macFinds =
   (
-    ...issues: {
-      word: string
-      choices: string[]
-      kind?: 'spelling' | 'grammar'
+    ...issues: readonly {
+      readonly word: string
+      readonly choices: readonly string[]
+      readonly kind?: 'spelling' | 'grammar'
     }[]
   ): Process =>
   (argv, stdin) =>
@@ -104,7 +104,7 @@ function setup(
   on: On,
   process: Process,
   draft: string,
-  onRead?: (world: World) => void,
+  retype?: { readonly atRead: number; readonly draft: string },
 ): World {
   const world: World = {
     clock: mock.clock(on),
@@ -124,13 +124,13 @@ function setup(
   }
 
   on('session.start', () => ({ cwd: '/work' }))
-  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('settings.read', () => {
     world.settingsReads += 1
     return { value: {} }
   })
   mock.env(on, { HOME: '/home/someone' })
-  on('fs.read', ($, e) =>
+  on('fs.read', (_$, e) =>
     world.keybindings !== undefined &&
     e.path === '/home/someone/.claude/keybindings.json'
       ? { value: world.keybindings }
@@ -138,19 +138,24 @@ function setup(
   )
   on('prompt.read', () => {
     world.reads += 1
-    onRead?.(world)
+    if (world.reads === retype?.atRead) {
+      world.draft = retype.draft
+    }
     return {
       value: { text: world.draft, cursor: world.cursor ?? world.draft.length },
     }
   })
-  on('prompt.fill', ($, e) => {
-    if (e.text === world.draft) world.repaints.push([...(e.decorations ?? [])])
-    else world.filled.push(e.text)
+  on('prompt.fill', (_$, e) => {
+    if (e.text === world.draft) {
+      world.repaints.push([...(e.decorations ?? [])])
+    } else {
+      world.filled.push(e.text)
+    }
     world.draft = e.text
     return { isFilled: true }
   })
-  on('prompt.submit', ($, e) => ({ text: e.text }))
-  on('process.run', ($, e) => {
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
+  on('process.run', (_$, e) => {
     const program = e.argv[0] ?? ''
     world.programs.push(program)
     world.argvs.push(e.argv)
@@ -161,12 +166,12 @@ function setup(
       : { value: result }
   })
   on('model.complete', () => ({ value: world.replies.shift() ?? ANSWER }))
-  on('store.get', ($, e) => ({ value: world.saved.get(e.key) }))
-  on('store.set', ($, e) => {
+  on('store.get', (_$, e) => ({ value: world.saved.get(e.key) }))
+  on('store.set', (_$, e) => {
     world.saved.set(e.key, e.value)
     return { value: undefined }
   })
-  on('ui.toast', ($, e) => {
+  on('ui.toast', (_$, e) => {
     world.toasts.push(e.text)
     return { value: undefined }
   })
@@ -179,7 +184,10 @@ function setup(
   return world
 }
 
-async function startAndCheck($: Engine, world: World): Promise<void> {
+async function startAndCheck(
+  $: Engine,
+  world: { readonly clock: MockClock },
+): Promise<void> {
   await $.session.start({
     cwd: '/work',
     surface: 'terminal',
@@ -263,8 +271,9 @@ describe('live spelling', () => {
     expect(sent).toHaveLength(draft.length)
     expect(sent).toStartWith('Fix teh ')
     expect(sent).toEndWith(' now')
-    for (const hidden of ['tset', './src', 'https'])
+    for (const hidden of ['tset', './src', 'https']) {
       expect(sent?.includes(hidden), hidden).toBe(false)
+    }
   })
 
   test('falls back to enchant-2 when osascript cannot start, at the right string index', async ($, on) => {
@@ -305,8 +314,9 @@ describe('live spelling', () => {
   })
 
   test('the band claims nothing while no check has finished for the draft', async ($, on) => {
-    const world = setup(on, macFinds(), 'fix teh bug now', w => {
-      if (w.reads === 2) w.draft = 'fix teh bug now ok'
+    const world = setup(on, macFinds(), 'fix teh bug now', {
+      atRead: 2,
+      draft: 'fix teh bug now ok',
     })
     await startAndCheck($, world)
 
@@ -322,9 +332,7 @@ describe('live spelling', () => {
       on,
       macFinds({ word: 'teh', choices: ['the'] }),
       'fix teh typo',
-      w => {
-        if (w.reads === 2) w.draft = 'fix teh typo now'
-      },
+      { atRead: 2, draft: 'fix teh typo now' },
     )
     await startAndCheck($, world)
 
@@ -450,9 +458,9 @@ describe('hunspell and the shortcut', () => {
       expect(
         await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
       ).toBeDefined()
-      expect((await band.find({ key: 'fix-1-1' }))?.props.hotkey).toBe('a')
-      expect((await band.find({ key: 'fix-1-2' }))?.props.hotkey).toBe('b')
-      expect((await band.find({ key: 'fix-2-1' }))?.props.hotkey).toBe('c')
+      expect((await band.find({ key: 'fix-1-1' }))?.props['hotkey']).toBe('a')
+      expect((await band.find({ key: 'fix-1-2' }))?.props['hotkey']).toBe('b')
+      expect((await band.find({ key: 'fix-2-1' }))?.props['hotkey']).toBe('c')
       await band.unmount()
     }
   })
@@ -501,7 +509,7 @@ describe('hunspell and the shortcut', () => {
 })
 
 describe('marking the word', () => {
-  const twoTypos = () =>
+  const twoTypos = (): Process =>
     macFinds(
       { word: 'teh', choices: ['the'] },
       { word: 'wiht', choices: ['with'] },
@@ -536,8 +544,9 @@ describe('marking the word', () => {
   })
 
   test('no repaint when the draft changed during the check', async ($, on) => {
-    const world = setup(on, twoTypos(), 'fix teh bug wiht', w => {
-      if (w.reads === 3) w.draft = 'fix teh bug wiht now'
+    const world = setup(on, twoTypos(), 'fix teh bug wiht', {
+      atRead: 3,
+      draft: 'fix teh bug wiht now',
     })
     await startAndCheck($, world)
 

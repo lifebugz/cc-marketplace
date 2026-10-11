@@ -6,19 +6,21 @@ import type {
 
 import type { TypoIssue } from '../types'
 
-export type Span = TypoIssue & { start: number; end: number }
+export type Span = TypoIssue & { readonly start: number; readonly end: number }
 
-export type Token = Pick<PromptAutocompleteInput, 'token' | 'start' | 'cursor'>
+export type Token = Readonly<
+  Pick<PromptAutocompleteInput, 'token' | 'start' | 'cursor'>
+>
 
 export interface Splice {
-  start: number
-  end: number
-  inputText: string
+  readonly start: number
+  readonly end: number
+  readonly inputText: string
 }
 
 export interface RewriteRequest {
-  system: string
-  prompt: string
+  readonly system: string
+  readonly prompt: string
 }
 
 const MAX_CHOICES = 3
@@ -61,9 +63,11 @@ const REWRITE_SYSTEM = [
 
 export function maskCode(text: string): string {
   const units = text.split('')
-  const blank = (start: number, end: number) => {
+  const blank = (start: number, end: number): void => {
     for (let i = start; i < end; i++) {
-      if (units[i] !== '\n') units[i] = ' '
+      if (units[i] !== '\n') {
+        units[i] = ' '
+      }
     }
   }
 
@@ -87,7 +91,9 @@ export function maskCode(text: string): string {
 }
 
 function isCodeLike(word: string): boolean {
-  if (word.length < 2) return false
+  if (word.length < 2) {
+    return false
+  }
   const isAllCaps = word === word.toUpperCase() && word !== word.toLowerCase()
   return isAllCaps || PLURAL_CAPS.test(word) || CODE_LIKE.test(word)
 }
@@ -99,7 +105,9 @@ export function parseMacResult(json: string, text: string): Span[] | undefined {
   } catch {
     return undefined
   }
-  if (!Array.isArray(data)) return undefined
+  if (!Array.isArray(data)) {
+    return undefined
+  }
 
   return data.flatMap((item: unknown) => {
     const span = toSpan(item, text)
@@ -108,13 +116,25 @@ export function parseMacResult(json: string, text: string): Span[] | undefined {
 }
 
 function toSpan(item: unknown, text: string): Span | undefined {
-  if (!isRecord(item)) return undefined
+  if (!isRecord(item)) {
+    return undefined
+  }
   const { start, end, kind, choices } = item
-  if (typeof start !== 'number' || typeof end !== 'number') return undefined
-  if (!Number.isInteger(start) || !Number.isInteger(end)) return undefined
-  if (start < 0 || end <= start || end > text.length) return undefined
-  if (kind !== 'spelling' && kind !== 'grammar') return undefined
-  if (!Array.isArray(choices)) return undefined
+  if (typeof start !== 'number' || typeof end !== 'number') {
+    return undefined
+  }
+  if (!Number.isInteger(start) || !Number.isInteger(end)) {
+    return undefined
+  }
+  if (start < 0 || end <= start || end > text.length) {
+    return undefined
+  }
+  if (kind !== 'spelling' && kind !== 'grammar') {
+    return undefined
+  }
+  if (!Array.isArray(choices)) {
+    return undefined
+  }
 
   const original = text.slice(start, end)
   const strings = choices.filter(
@@ -161,7 +181,9 @@ export function parseIspell(output: string, text: string): Span[] {
   const spans: Span[] = []
   let row = 0
   for (const out of output.split('\n')) {
-    if (out.startsWith('@')) continue
+    if (out.startsWith('@')) {
+      continue
+    }
     if (out === '') {
       row += 1
       continue
@@ -172,15 +194,18 @@ export function parseIspell(output: string, text: string): Span[] {
     const reported = Number(miss?.[2] ?? none?.[2])
     const line = lines[row]
     const lineStart = lineStarts[row]
-    if (word === undefined || line === undefined || lineStart === undefined)
+    if (word === undefined || line === undefined || lineStart === undefined) {
       continue
+    }
 
     const index = locate(
       line,
       word,
       byteOffsetToIndex(`^${line}`, reported) - 1,
     )
-    if (index < 0) continue
+    if (index < 0) {
+      continue
+    }
     const choices = miss?.[3]?.split(', ') ?? []
     spans.push(makeSpan(word, lineStart + index, 'spelling', choices))
   }
@@ -193,19 +218,23 @@ function byteOffsetToIndex(line: string, byteOffset: number): number {
     !Number.isInteger(byteOffset) ||
     byteOffset < 0 ||
     byteOffset > bytes.length
-  )
+  ) {
     return byteOffset
+  }
   return new TextDecoder().decode(bytes.slice(0, byteOffset)).length
 }
 
 export function locate(text: string, word: string, near: number): number {
-  if (word === '') return -1
+  if (word === '') {
+    return -1
+  }
   let best = -1
   for (let at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
     const isWhole =
       !isWordChar(text[at - 1]) && !isWordChar(text[at + word.length])
-    if (isWhole && (best < 0 || Math.abs(at - near) < Math.abs(best - near)))
+    if (isWhole && (best < 0 || Math.abs(at - near) < Math.abs(best - near))) {
       best = at
+    }
   }
   return best
 }
@@ -231,7 +260,9 @@ export function shiftSpans(
   return spans.flatMap(span => {
     const isBefore = span.end <= edit.start
     const isAfter = span.start >= edit.end
-    if (!isBefore && !isAfter) return []
+    if (!isBefore && !isAfter) {
+      return []
+    }
     const start = isBefore ? span.start : span.start + delta
     const moved = { ...span, start, end: start + span.original.length }
     return isIntact(text, moved) ? [moved] : []
@@ -241,7 +272,9 @@ export function shiftSpans(
 export function diffSplice(before: string, after: string): Splice {
   const limit = Math.min(before.length, after.length)
   let start = 0
-  while (start < limit && before[start] === after[start]) start += 1
+  while (start < limit && before[start] === after[start]) {
+    start += 1
+  }
   let tail = 0
   while (
     tail < limit - start &&
@@ -274,7 +307,9 @@ export function typeaheadRows(
   at: Token,
 ): PromptAutocompleteSuggestion[] {
   const span = offeredSpan(spans, at)
-  if (span === undefined) return []
+  if (span === undefined) {
+    return []
+  }
 
   const head = at.token.slice(0, span.start - at.start)
   const tail = at.token.slice(span.end - at.start)
@@ -291,7 +326,9 @@ export function tokenAt(text: string, cursor: number): Token {
 }
 
 export function hunspellDictionary(option: unknown): string | undefined {
-  if (typeof option !== 'string') return undefined
+  if (typeof option !== 'string') {
+    return undefined
+  }
   const name = option.trim()
   return DICTIONARY_NAME.test(name) ? name : undefined
 }
@@ -309,23 +346,38 @@ export function mergeSpans(
 }
 
 export function focusShortcut(json: string | undefined): string {
-  if (json === undefined) return DEFAULT_FOCUS_KEY
+  if (json === undefined) {
+    return DEFAULT_FOCUS_KEY
+  }
   let data: unknown
   try {
     data = JSON.parse(json)
   } catch {
     return DEFAULT_FOCUS_KEY
   }
-  if (!isRecord(data) || !Array.isArray(data.bindings)) return DEFAULT_FOCUS_KEY
+  const blocks = isRecord(data) ? data['bindings'] : undefined
+  if (!isList(blocks)) {
+    return DEFAULT_FOCUS_KEY
+  }
 
-  for (const block of data.bindings as unknown[]) {
-    if (!isRecord(block) || !isRecord(block.bindings)) continue
-    if (typeof block.context !== 'string') continue
-    if (!FOCUS_CONTEXTS.has(block.context)) continue
-    const found = Object.entries(block.bindings).find(
+  for (const block of blocks) {
+    if (!isRecord(block)) {
+      continue
+    }
+    const bindings = block['bindings']
+    const context = block['context']
+    if (!isRecord(bindings) || typeof context !== 'string') {
+      continue
+    }
+    if (!FOCUS_CONTEXTS.has(context)) {
+      continue
+    }
+    const found = Object.entries(bindings).find(
       ([, action]) => action === FOCUS_ACTION,
     )
-    if (found !== undefined) return found[0]
+    if (found !== undefined) {
+      return found[0]
+    }
   }
   return DEFAULT_FOCUS_KEY
 }
@@ -342,7 +394,9 @@ export function applyChoice(
   const start = isIntact(text, span)
     ? span.start
     : locate(text, span.original, span.start)
-  if (start < 0) return undefined
+  if (start < 0) {
+    return undefined
+  }
   const end = start + span.original.length
   return {
     text: text.slice(0, start) + choice + text.slice(end),
@@ -357,7 +411,9 @@ export function buildRewriteRequest(draft: string): RewriteRequest {
 export function parseRewriteReply(reply: string): string[] | undefined {
   const from = reply.indexOf('{')
   const to = reply.lastIndexOf('}')
-  if (from < 0 || to < from) return undefined
+  if (from < 0 || to < from) {
+    return undefined
+  }
 
   let data: unknown
   try {
@@ -365,16 +421,12 @@ export function parseRewriteReply(reply: string): string[] | undefined {
   } catch {
     return undefined
   }
-  if (
-    !isRecord(data) ||
-    !Array.isArray(data.rewrites) ||
-    data.rewrites.length !== 3
-  )
+  const list = isRecord(data) ? data['rewrites'] : undefined
+  if (!isList(list) || list.length !== 3) {
     return undefined
+  }
 
-  const rewrites = data.rewrites.map((r: unknown) =>
-    typeof r === 'string' ? r.trim() : '',
-  )
+  const rewrites = list.map(r => (typeof r === 'string' ? r.trim() : ''))
   return rewrites.every(r => r !== '') ? rewrites : undefined
 }
 
@@ -413,6 +465,10 @@ export function listSignature(issues: readonly TypoIssue[]): string {
     .join('\n')
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isList(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value)
 }

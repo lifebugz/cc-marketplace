@@ -34,13 +34,14 @@ import {
 } from './text'
 
 type RephraseFrom = 'band' | 'command'
-type RephraseOutcome = { rewrites: string[] } | { reason: string }
+type RephraseOutcome =
+  { readonly rewrites: readonly string[] } | { readonly reason: string }
 
 interface Backend {
-  name: string
-  argv: (root: string, language: string) => string[]
-  input: (text: string) => string
-  parse: (stdout: string, text: string) => Span[] | undefined
+  readonly name: string
+  readonly argv: (root: string, language: string) => string[]
+  readonly input: (text: string) => string
+  readonly parse: (stdout: string, text: string) => Span[] | undefined
 }
 
 interface Live {
@@ -49,7 +50,7 @@ interface Live {
   hunspell: string | undefined
   draftText: string
   checkedText: string | undefined
-  spans: Span[]
+  spans: readonly Span[]
   hasDraft: boolean
   isChecked: boolean
   isOffering: boolean
@@ -85,10 +86,10 @@ const isOffering = atom(
 )
 const rephrase = atom({ plugin: 'typofix', key: 'rephrase' } as const, IDLE)
 
-const withLanguage = (language: string) =>
+const withLanguage = (language: string): string[] =>
   language === '' ? [] : ['-d', language]
 
-const hunspellArgv = (language: string) => [
+const hunspellArgv = (language: string): string[] => [
   'hunspell',
   '-a',
   '-i',
@@ -102,6 +103,13 @@ const extraBackend = (dictionary: string): Backend => ({
   input: toIspellInput,
   parse: parseIspell,
 })
+
+function candidateBackends(): readonly Backend[] {
+  if (live.backend === undefined) {
+    return BACKENDS
+  }
+  return live.backend === null ? [] : [live.backend]
+}
 
 const BACKENDS: readonly Backend[] = [
   {
@@ -177,24 +185,33 @@ function offeredAt(text: string, cursor: number): Span | undefined {
 }
 
 async function setOffering($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.isOffering) return
+  if (value === live.isOffering) {
+    return
+  }
   live.isOffering = value
   await update($, isOffering, () => live.isOffering)
 }
 
 async function setChecked($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.isChecked) return
+  if (value === live.isChecked) {
+    return
+  }
   live.isChecked = value
   await update($, isChecked, () => live.isChecked)
 }
 
-async function writeIssues($: EngineInterface, spans: Span[]): Promise<void> {
+async function writeIssues(
+  $: EngineInterface,
+  spans: readonly Span[],
+): Promise<void> {
   live.spans = spans
   await update($, issues, () => live.spans.map(toIssue))
 }
 
 async function setDraft($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.hasDraft) return
+  if (value === live.hasDraft) {
+    return
+  }
   live.hasDraft = value
   await update($, hasDraft, () => live.hasDraft)
 }
@@ -223,7 +240,9 @@ async function onDraftChange(
   const before = live.spans
   live.draftText = text
   live.spans = text.startsWith('/') ? [] : shiftSpans(before, edit, text)
-  if (live.spans.length !== before.length) await writeIssues($, live.spans)
+  if (live.spans.length !== before.length) {
+    await writeIssues($, live.spans)
+  }
   await setDraft($, isDraft(text))
   await setChecked($, false)
   await settleRephrase($)
@@ -231,8 +250,12 @@ async function onDraftChange(
 }
 
 async function settleRephrase($: EngineInterface): Promise<void> {
-  if (live.rephrase === 'idle') return
-  if (live.rephrase === 'loading' && live.rephraseFrom === 'command') return
+  if (live.rephrase === 'idle') {
+    return
+  }
+  if (live.rephrase === 'loading' && live.rephraseFrom === 'command') {
+    return
+  }
   await cancelRephrase($)
 }
 
@@ -247,14 +270,18 @@ async function runSpellCheck(
   snapshot: string | undefined,
 ): Promise<void> {
   const { text } = await $.prompt.read()
-  if (snapshot !== undefined && text !== snapshot) return
+  if (snapshot !== undefined && text !== snapshot) {
+    return
+  }
   if (text !== live.draftText) {
     live.spans = shiftSpans(live.spans, diffSplice(live.draftText, text), text)
     live.draftText = text
   }
   await setDraft($, isDraft(text))
   if (text.trim() === '' || text.startsWith('/')) {
-    if (live.spans.length > 0) await writeIssues($, [])
+    if (live.spans.length > 0) {
+      await writeIssues($, [])
+    }
     live.checkedText = text
     return
   }
@@ -262,7 +289,9 @@ async function runSpellCheck(
   const found = await checkText($, text)
   if (found === undefined) {
     live.checkedText = text
-    if (live.backend === null) await setChecked($, true)
+    if (live.backend === null) {
+      await setChecked($, true)
+    }
     return
   }
   const ignored = await readIgnored($)
@@ -274,7 +303,9 @@ async function runSpellCheck(
     .sort((a, b) => a.start - b.start)
 
   const again = await $.prompt.read()
-  if (again.text !== text) return
+  if (again.text !== text) {
+    return
+  }
   await showIssues($, fresh)
   live.checkedText = text
   await setChecked($, true)
@@ -283,9 +314,13 @@ async function runSpellCheck(
 }
 
 async function paintNow($: EngineInterface, text: string): Promise<void> {
-  if (live.spans.length === 0) return
+  if (live.spans.length === 0) {
+    return
+  }
   const box = await $.prompt.read()
-  if (box.text !== text || box.cursor !== text.length) return
+  if (box.text !== text || box.cursor !== text.length) {
+    return
+  }
   await $.prompt.fill({
     text,
     mode: 'replace',
@@ -293,7 +328,10 @@ async function paintNow($: EngineInterface, text: string): Promise<void> {
   })
 }
 
-async function showIssues($: EngineInterface, spans: Span[]): Promise<void> {
+async function showIssues(
+  $: EngineInterface,
+  spans: readonly Span[],
+): Promise<void> {
   if (
     live.hiddenFor !== undefined &&
     listSignature(spans.map(toIssue)) !== live.hiddenFor
@@ -308,14 +346,18 @@ async function checkedSpans(
   $: EngineInterface,
   text: string,
   signal: AbortSignal,
-): Promise<Span[] | undefined> {
+): Promise<readonly Span[] | undefined> {
   for (
     let waited = 0;
     waited <= TYPEAHEAD_WAIT_MS;
     waited += TYPEAHEAD_POLL_MS
   ) {
-    if (live.draftText !== text) return undefined
-    if (live.checkedText === text) return live.spans
+    if (live.draftText !== text) {
+      return undefined
+    }
+    if (live.checkedText === text) {
+      return live.spans
+    }
     try {
       await $.clock.sleep(TYPEAHEAD_POLL_MS, { signal })
     } catch {
@@ -330,15 +372,12 @@ async function checkText(
   text: string,
 ): Promise<Span[] | undefined> {
   const masked = maskCode(text)
-  const candidates =
-    live.backend === undefined
-      ? BACKENDS
-      : live.backend === null
-        ? []
-        : [live.backend]
+  const candidates = candidateBackends()
   for (const candidate of candidates) {
     const found = await runBackend($, candidate, masked)
-    if (found === 'unavailable') continue
+    if (found === 'unavailable') {
+      continue
+    }
     live.backend = candidate
     const spans =
       candidate.name === 'osascript' ? await withExtra($, found, masked) : found
@@ -355,10 +394,12 @@ async function checkText(
 
 async function withExtra(
   $: EngineInterface,
-  found: Span[] | undefined,
+  found: readonly Span[] | undefined,
   masked: string,
-): Promise<Span[] | undefined> {
-  if (found === undefined || live.hunspell === undefined) return found
+): Promise<readonly Span[] | undefined> {
+  if (found === undefined || live.hunspell === undefined) {
+    return found
+  }
   const extra = await runBackend($, extraBackend(live.hunspell), masked)
   if (extra === 'unavailable' || extra === undefined) {
     $.ui.log(
@@ -408,10 +449,11 @@ async function runBackend(
   }
 
   const spans = backend.parse(ran.stdout, masked)
-  if (spans === undefined)
+  if (spans === undefined) {
     $.ui.log(`typofix: could not read what ${backend.name} printed`, {
       to: 'debug',
     })
+  }
   return spans
 }
 
@@ -454,7 +496,9 @@ async function runRephrase(
     { to: 'debug' },
   )
 
-  if (live.rephraseStop !== stop) return { reason: 'cancelled' }
+  if (live.rephraseStop !== stop) {
+    return { reason: 'cancelled' }
+  }
   live.rephraseStop = undefined
 
   const rewrites = reply.isAnswered ? parseRewriteReply(reply.text) : undefined
@@ -468,15 +512,23 @@ async function runRephrase(
 }
 
 function failureOf(reply: ModelCompleteResult): string {
-  if (reply.isAnswered) return 'Haiku did not answer with 3 rewrites'
-  if (reply.reason === 'api-error') return `Haiku failed (${reply.error})`
-  if (reply.reason === 'empty-reply') return 'Haiku sent an empty reply'
+  if (reply.isAnswered) {
+    return 'Haiku did not answer with 3 rewrites'
+  }
+  if (reply.reason === 'api-error') {
+    return `Haiku failed (${reply.error})`
+  }
+  if (reply.reason === 'empty-reply') {
+    return 'Haiku sent an empty reply'
+  }
   return `Haiku took longer than ${String(REPHRASE_TIMEOUT_MS / 1000)} s`
 }
 
 async function rephraseDraft($: EngineInterface): Promise<void> {
   const { text } = await $.prompt.read()
-  if (text.trim() === '') return
+  if (text.trim() === '') {
+    return
+  }
   await runRephrase($, text, 'band')
 }
 
@@ -486,7 +538,9 @@ async function pickChoice(
   choice: string,
 ): Promise<void> {
   const target = live.spans.find(span => span.id === id)
-  if (target === undefined) return
+  if (target === undefined) {
+    return
+  }
   const { text } = await $.prompt.read()
   const rest = live.spans.filter(span => span.id !== id)
   const applied = applyChoice(text, target, choice)
@@ -569,9 +623,9 @@ async function hideIssues($: EngineInterface): Promise<void> {
 }
 
 export const register: Register = (on, options) => {
-  live.language =
-    typeof options.language === 'string' ? options.language.trim() : ''
-  live.hunspell = hunspellDictionary(options.hunspell)
+  const language = options['language']
+  live.language = typeof language === 'string' ? language.trim() : ''
+  live.hunspell = hunspellDictionary(options['hunspell'])
 
   on('session.start', async ($, e, next) => {
     forgetDraft()
@@ -582,13 +636,17 @@ export const register: Register = (on, options) => {
       description: 'Rewrite a text 3 ways with Haiku: fixed, natural and short',
       argumentHint: '<text>',
     })
-    if (e.isInteractive) scheduleCheck($, undefined)
+    if (e.isInteractive) {
+      scheduleCheck($, undefined)
+    }
     return next(e)
   })
 
   on('prompt.edit', async ($, e, next) => {
     const edited = await next(e)
-    if (edited.text !== e.text) await onDraftChange($, e, edited.text)
+    if (edited.text !== e.text) {
+      await onDraftChange($, e, edited.text)
+    }
     const offered = offeredAt(edited.text, edited.cursor)
     await setOffering($, offered !== undefined)
     return {
@@ -602,13 +660,17 @@ export const register: Register = (on, options) => {
 
   on('prompt.autocomplete', async ($, e, next) => {
     const offered = await next(e)
-    if (e.text.startsWith('/')) return offered
+    if (e.text.startsWith('/')) {
+      return offered
+    }
     if (e.text !== live.draftText) {
       await onDraftChange($, diffSplice(live.draftText, e.text), e.text)
     }
     const spans = await checkedSpans($, e.text, next.signal)
     const fixes = spans === undefined ? [] : typeaheadRows(spans, e)
-    if (fixes.length === 0) return offered
+    if (fixes.length === 0) {
+      return offered
+    }
     await setOffering($, true)
     return { suggestions: [...offered.suggestions, ...fixes] }
   })
@@ -627,9 +689,13 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'rephrase' }, async ($, e) => {
     const source = e.args.trim()
-    if (source === '') return { text: 'usage: /rephrase <text>' }
+    if (source === '') {
+      return { text: 'usage: /rephrase <text>' }
+    }
     const outcome = await runRephrase($, source, 'command')
-    if ('reason' in outcome) return { text: `typofix: ${outcome.reason}` }
+    if ('reason' in outcome) {
+      return { text: `typofix: ${outcome.reason}` }
+    }
     return {
       text: outcome.rewrites
         .map(
@@ -641,7 +707,9 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    if (e.props.hasSurvey) {
+      return next(e)
+    }
     const [list, hidden, draft, checked, offering, phrase] = await Promise.all([
       read($, issues),
       read($, isHidden),
@@ -725,10 +793,14 @@ export const register: Register = (on, options) => {
       )
     }
 
-    if (offering || hidden || (list.length === 0 && !draft)) return next(e)
+    if (offering || hidden || (list.length === 0 && !draft)) {
+      return next(e)
+    }
 
     if (list.length === 0) {
-      if (!checked) return next(e)
+      if (!checked) {
+        return next(e)
+      }
       const verdict = live.backend === null ? '' : 'no typos · '
       return (
         <Box columnGap={1}>
@@ -766,16 +838,19 @@ export const register: Register = (on, options) => {
               {issue.original.padEnd(width)}
             </Text>
             {issue.choices.length === 0 && <Text dimColor>no suggestions</Text>}
-            {issue.choices.map((choice, n) => (
-              <Button
-                key={`fix-${String(row + 1)}-${String(n + 1)}`}
-                hotkey={fixLetter(lettered++)}
-                plain
-                onPress={() => void pickChoice($, issue.id, choice)}
-              >
-                {choice}
-              </Button>
-            ))}
+            {issue.choices.map((choice, n) => {
+              const hotkey = fixLetter(lettered++)
+              return (
+                <Button
+                  key={`fix-${String(row + 1)}-${String(n + 1)}`}
+                  {...(hotkey === undefined ? {} : { hotkey })}
+                  plain
+                  onPress={() => void pickChoice($, issue.id, choice)}
+                >
+                  {choice}
+                </Button>
+              )
+            })}
             {issue.kind === 'spelling' ? (
               <Button
                 key={`ignore-${String(row + 1)}`}

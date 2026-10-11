@@ -6,27 +6,46 @@ const MAX_CHOICES = 3
 
 /** @typedef {{ start: number, end: number, kind: 'spelling' | 'grammar', choices: string[] }} Issue */
 
+/** @returns {NSString} */
 function readStdin() {
   const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile
   return $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)
 }
 
 /**
+ * @param {string} text
+ * @returns {void}
+ */
+function warn(text) {
+  $.NSFileHandle.fileHandleWithStandardError.writeData(
+    $(`${text}\n`).dataUsingEncoding($.NSUTF8StringEncoding),
+  )
+}
+
+/**
  * @param {NSSpellChecker} checker
  * @param {string} language
+ * @returns {NSString}
  */
 function useLanguage(checker, language) {
-  if (language === '') return $()
+  if (language === '') {
+    return $()
+  }
   checker.automaticallyIdentifiesLanguages = false
-  if (checker.setLanguage(language)) return $(language)
-  console.log(
+  if (checker.setLanguage(language)) {
+    return $(language)
+  }
+  warn(
     `typofix: macOS has no spelling dictionary for "${language}", so it detects the language instead`,
   )
   checker.automaticallyIdentifiesLanguages = true
   return $()
 }
 
-/** @param {NSArray<NSString>} list */
+/**
+ * @param {NSArray<NSString>} list
+ * @returns {string[]}
+ */
 function strings(list) {
   const values = ObjC.deepUnwrap(list)
   return Array.isArray(values)
@@ -40,17 +59,23 @@ function strings(list) {
  */
 function grammarIssues(result) {
   const details = result.grammarDetails
-  if (details.isNil()) return []
+  if (details.isNil()) {
+    return []
+  }
   /** @type {Issue[]} */
   const issues = []
   for (let i = 0; i < Number(details.count); i++) {
     const detail = details.objectAtIndex(i)
     const inner = detail.objectForKey('NSGrammarRange')
-    if (inner.isNil()) continue
+    if (inner.isNil()) {
+      continue
+    }
     const start =
       Number(result.range.location) + Number(inner.rangeValue.location)
     const end = start + Number(inner.rangeValue.length)
-    if (end <= start) continue
+    if (end <= start) {
+      continue
+    }
     issues.push({
       start,
       end,
@@ -61,8 +86,11 @@ function grammarIssues(result) {
   return issues
 }
 
-/** @param {string[]} argv */
-function run(argv) {
+/**
+ * @param {readonly string[]} argv
+ * @returns {string}
+ */
+globalThis.run = function (argv) {
   const checker = $.NSSpellChecker.sharedSpellChecker
   const language = useLanguage(checker, argv[0] ?? '')
   const text = readStdin()
@@ -86,7 +114,9 @@ function run(argv) {
       issues.push(...grammarIssues(result))
       continue
     }
-    if (type !== SPELLING) continue
+    if (type !== SPELLING) {
+      continue
+    }
     const start = Number(result.range.location)
     const end = start + Number(result.range.length)
     const guesses =

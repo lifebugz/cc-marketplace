@@ -156,23 +156,21 @@ through your Claude Code session, as one model call on your account.
 
 ## Develop
 
-```shell
-claude --plugin-dir ./plugins/typofix
-claude plugin validate ./plugins/typofix
-claude plugin test ./plugins/typofix
-```
+The mod uses the TypeScript, ESLint and Prettier setup at the repository root
+(see [`plugins/README.md`](../README.md#develop-a-mod)). From the root:
 
-The first `--plugin-dir` load writes the type files for your Claude Code build
-into `.claude-plugin/types/` (git ignores them) and adds a `tsconfig.json` at the
-mod's root, so `tsc -p ./plugins/typofix` type-checks the mod.
+```shell
+bun install
+bun run check                   # types, tsc, ESLint, Prettier, tests, validate
+bun run lint plugins/typofix    # ESLint on this mod only
+claude plugin test plugins/typofix
+```
 
 `scripts/spell-macos.js` stays plain JavaScript, because macOS runs it with
 `osascript -l JavaScript`, which accepts no TypeScript syntax. It is still
-type-checked, as its own project:
-
-```shell
-tsc -p ./plugins/typofix/scripts
-```
+type-checked, as its own project (`scripts/tsconfig.json`), and every function
+in it carries JSDoc types. `osascript` calls the `run` function the script sets
+on `globalThis`.
 
 `scripts/jxa.d.ts` declares the macOS objects the script uses. In `osascript`,
 counts and positions arrive as strings (`"25"`), so the types say `string` and

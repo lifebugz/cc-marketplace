@@ -20,6 +20,7 @@ import {
   tokenAt,
   typeaheadRows,
   type Span,
+  type Token,
 } from '../hooks/text'
 
 const DRAFT = 'Create a mod that check teh typos'
@@ -252,7 +253,7 @@ describe('diffSplice', () => {
 describe('typeaheadRows', () => {
   const text = 'fix teh, then go'
   const teh = span(text, 'teh')
-  const token = (word: string, start: number) => ({
+  const token = (word: string, start: number): Token => ({
     token: word,
     start,
     cursor: start + word.length,
@@ -325,7 +326,7 @@ describe('mergeSpans', () => {
 })
 
 describe('focusShortcut', () => {
-  const file = (context: string, key: string, action: string) =>
+  const file = (context: string, key: string, action: string): string =>
     JSON.stringify({ bindings: [{ context, bindings: { [key]: action } }] })
 
   test('finds the key bound to the band focus action', () => {

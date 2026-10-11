@@ -3,7 +3,7 @@
 type JxaInteger = string
 
 interface NSObject {
-  isNil(): boolean
+  readonly isNil: () => boolean
 }
 
 interface NSRange {
@@ -14,13 +14,14 @@ interface NSRange {
 interface NSString extends NSObject {
   readonly length: JxaInteger
   readonly js: string
+  readonly dataUsingEncoding: (encoding: JxaInteger) => NSData
 }
 
 type NSData = NSObject
 
 interface NSArray<Item> extends NSObject {
   readonly count: JxaInteger
-  objectAtIndex(index: number): Item
+  readonly objectAtIndex: (index: number) => Item
 }
 
 interface NSRangeValue extends NSObject {
@@ -28,8 +29,8 @@ interface NSRangeValue extends NSObject {
 }
 
 interface GrammarDetail {
-  objectForKey(key: 'NSGrammarRange'): NSRangeValue
-  objectForKey(key: 'NSGrammarCorrections'): NSArray<NSString>
+  readonly objectForKey: ((key: 'NSGrammarRange') => NSRangeValue) &
+    ((key: 'NSGrammarCorrections') => NSArray<NSString>)
 }
 
 interface NSTextCheckingResult {
@@ -40,8 +41,8 @@ interface NSTextCheckingResult {
 
 interface NSSpellChecker {
   automaticallyIdentifiesLanguages: boolean
-  setLanguage(language: string): boolean
-  checkStringRangeTypesOptionsInSpellDocumentWithTagOrthographyWordCount(
+  readonly setLanguage: (language: string) => boolean
+  readonly checkStringRangeTypesOptionsInSpellDocumentWithTagOrthographyWordCount: (
     text: NSString,
     range: NSRange,
     types: number,
@@ -49,13 +50,13 @@ interface NSSpellChecker {
     tag: number,
     orthography: null,
     wordCount: null,
-  ): NSArray<NSTextCheckingResult>
-  guessesForWordRangeInStringLanguageInSpellDocumentWithTag(
+  ) => NSArray<NSTextCheckingResult>
+  readonly guessesForWordRangeInStringLanguageInSpellDocumentWithTag: (
     range: NSRange,
     text: NSString,
     language: NSString,
     tag: number,
-  ): NSArray<NSString>
+  ) => NSArray<NSString>
 }
 
 interface ObjCBridge {
@@ -65,23 +66,28 @@ interface ObjCBridge {
     readonly fileHandleWithStandardInput: {
       readonly readDataToEndOfFile: NSData
     }
+    readonly fileHandleWithStandardError: {
+      readonly writeData: (data: NSData) => void
+    }
   }
   readonly NSString: {
     readonly alloc: {
-      initWithDataEncoding(data: NSData, encoding: JxaInteger): NSString
+      readonly initWithDataEncoding: (
+        data: NSData,
+        encoding: JxaInteger,
+      ) => NSString
     }
   }
   readonly NSUTF8StringEncoding: JxaInteger
-  NSMakeRange(location: number, length: number): NSRange
+  readonly NSMakeRange: (location: number, length: number) => NSRange
 }
 
 declare const $: ObjCBridge
 
 declare const ObjC: {
-  import(framework: string): void
-  deepUnwrap(value: NSObject): unknown
+  readonly import: (framework: string) => void
+  readonly deepUnwrap: (value: NSObject) => unknown
 }
 
-declare const console: {
-  log(...values: unknown[]): void
-}
+/** osascript calls the script's run(argv) and prints what it returns. */
+declare function run(argv: readonly string[]): string
