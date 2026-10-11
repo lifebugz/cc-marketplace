@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Commit, push, and open a pull request for the current changes in one flow. Flags skip steps - --no-pr (commit and push only), --no-push (commit only), --draft (draft PR), --base <branch> (PR base). Remaining arguments hint the commit message.
-argument-hint: "[--no-pr] [--no-push] [--draft] [--base <branch>] [message hint]"
+argument-hint: '[--no-pr] [--no-push] [--draft] [--base <branch>] [message hint]'
 disable-model-invocation: true
 model: sonnet
 allowed-tools: Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git add *) Bash(git commit *) Bash(git push *) Bash(git branch *) Bash(git switch *) Bash(git rev-parse *) Bash(git remote *) Bash(gh pr *)
@@ -50,7 +50,7 @@ A PR cannot come from the branch it targets. If a PR will be created and you are
 
 Stage the files that belong to this change by path - avoid `git add -A` so unrelated edits and junk files stay out. Never stage likely secrets (`.env`, key files, hardcoded credentials). If a secret is tangled into a file that also has legitimate changes, leave that whole file unstaged, ship the rest only if it stands alone as a working change, and warn the user clearly so they can rotate the key and re-commit the clean part.
 
-Write the commit message from the actual diff, following the style of the recent commits above (e.g. conventional `type(scope): summary`). Use the user's message hint as the subject's basis when given. Add a short body explaining *why* for non-trivial changes.
+Write the commit message from the actual diff, following the style of the recent commits above (e.g. conventional `type(scope): summary`). Use the user's message hint as the subject's basis when given. Add a short body explaining _why_ for non-trivial changes.
 
 If a commit hook fails, fix the reported problems and retry once. If the hook modified files, stage those and amend the not-yet-pushed commit. Never use `--no-verify`.
 
