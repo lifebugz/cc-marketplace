@@ -43,12 +43,12 @@ The task opens in a pane called **HTL tasks**. One card shows at a time:
 
 ![A task card: number and mode, the title, the blocker and why, what Claude tried, numbered steps, how Claude will check, and the keys a: Accept, r: Reject, y: You can do this.](assets/task-card.png)
 
-| Key | Button | What Claude receives |
-| :- | :- | :- |
-| `a` | Accept | "accepted, I did it", then it checks the result and continues |
-| `r` | Reject | "rejected, I won't do it", then it finds another way or says what stays blocked |
-| `y` | You can do this | "you can do this yourself", then it does the job with its own tools |
-| `n` | Next | shows the next card, when there is more than one |
+| Key | Button          | What Claude receives                                                            |
+| :-- | :-------------- | :------------------------------------------------------------------------------ |
+| `a` | Accept          | "accepted, I did it", then it checks the result and continues                   |
+| `r` | Reject          | "rejected, I won't do it", then it finds another way or says what stays blocked |
+| `y` | You can do this | "you can do this yourself", then it does the job with its own tools             |
+| `n` | Next            | shows the next card, when there is more than one                                |
 
 After a button, you can type an optional message to Claude. Enter sends it,
 even when the field is empty.
@@ -148,25 +148,19 @@ Claude never feeds a password into `sudo` or a login prompt, even from
 
 ## Development
 
-The engine writes this build's type declarations to `.claude-plugin/types/`
-when it loads the mod in an interactive session (a `claude -p` run does not).
-They are ignored by git, so load the mod once before you type-check:
-
-```bash
-claude --plugin-dir plugins/htl   # then /exit
-```
-
-From the repository root:
+The mod uses the TypeScript, ESLint and Prettier setup at the repository root
+(see [`plugins/README.md`](../README.md#develop-a-mod)). From the root:
 
 ```bash
 bun install
-bun run check                  # tsc (TypeScript 7), ESLint (strict, type-aware), Prettier
+bun run check                  # types, tsc, ESLint, Prettier, tests, validate
+bun run lint plugins/htl       # ESLint on this mod only
 claude plugin test plugins/htl # unit tests and hook tests, no model calls
-claude plugin validate plugins/htl --strict
 ```
 
-`tsconfig.json` leaves out the generated `claude-code-mcp` types on purpose:
-they list the MCP servers connected on your machine, and with them the matcher
+The type-check reads the mod API types from `.claude-types/` at the root, which
+leaves out the generated `claude-code-mcp` types on purpose: they list the MCP
+servers connected on your machine, and with them the matcher
 `{ tool: 'mcp__htl__assign_task' }` stops type-checking.
 
 ### Evals
@@ -189,7 +183,7 @@ on your account.
   the pane would send.
 
 ```bash
-bun run eval
+bun run eval:htl
 ```
 
 It runs as one process with `-j 4`. Several eval processes at once made runs

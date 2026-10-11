@@ -39,10 +39,14 @@ export type Parsed =
   | { request?: undefined; problems: readonly string[] }
 
 export interface SessionTasks {
-  open: readonly HtlTask[]
-  closed: readonly ClosedTask[]
-  secrets: SecretsMode
+  readonly open: readonly HtlTask[]
+  readonly closed: readonly ClosedTask[]
+  readonly secrets: SecretsMode
 }
+
+type Field<T> =
+  | { readonly value: T; readonly problem?: undefined }
+  | { readonly value?: undefined; readonly problem: string }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -58,77 +62,90 @@ function isOneOf<T extends string>(
 function textField(
   input: Readonly<Record<string, unknown>>,
   name: string,
-  problems: string[],
-): string | undefined {
+): Field<string> {
   const value = input[name]
   if (value === undefined) {
-    problems.push(`${name} is missing`)
-    return undefined
+    return { problem: `${name} is missing` }
   }
   if (typeof value !== 'string') {
-    problems.push(`${name} must be a string`)
-    return undefined
+    return { problem: `${name} must be a string` }
   }
   if (value.trim() === '') {
-    problems.push(`${name} is empty`)
-    return undefined
+    return { problem: `${name} is empty` }
   }
-  return value.trim()
+  return { value: value.trim() }
 }
 
 function choiceField<T extends string>(
   input: Readonly<Record<string, unknown>>,
   name: string,
   options: readonly T[],
-  problems: string[],
-): T | undefined {
+): Field<T> {
   const value = input[name]
   if (value === undefined) {
-    problems.push(`${name} is missing`)
-    return undefined
+    return { problem: `${name} is missing` }
   }
   if (!isOneOf(options, value)) {
-    problems.push(`${name} must be one of: ${options.join(', ')}`)
-    return undefined
+    return { problem: `${name} must be one of: ${options.join(', ')}` }
   }
-  return value
+  return { value }
+}
+
+function checkField(value: unknown): Field<string | undefined> {
+  if (value === undefined) {
+    return { value: undefined }
+  }
+  if (typeof value !== 'string') {
+    return { problem: 'check must be a string' }
+  }
+  return { value: value.trim() === '' ? undefined : value.trim() }
 }
 
 export function parseRequest(e: unknown): Parsed {
-  if (!isRecord(e)) return { problems: ['the input must be an object'] }
-  const problems: string[] = []
-  const title = textField(e, 'title', problems)
-  const steps = textField(e, 'steps', problems)
-  const blocker = choiceField(e, 'blocker', BLOCKERS, problems)
-  const why = textField(e, 'why', problems)
-  const tried = textField(e, 'tried', problems)
-  const mode = choiceField(e, 'mode', MODES, problems)
-
-  let check: string | undefined
-  const rawCheck = e['check']
-  if (rawCheck !== undefined) {
-    if (typeof rawCheck !== 'string') problems.push('check must be a string')
-    else if (rawCheck.trim() !== '') check = rawCheck.trim()
+  if (!isRecord(e)) {
+    return { problems: ['the input must be an object'] }
   }
+  const title = textField(e, 'title')
+  const steps = textField(e, 'steps')
+  const blocker = choiceField(e, 'blocker', BLOCKERS)
+  const why = textField(e, 'why')
+  const tried = textField(e, 'tried')
+  const mode = choiceField(e, 'mode', MODES)
+  const check = checkField(e['check'])
 
   const extra = Object.keys(e).filter(
     key => !FIELDS.has(key) && !ENVELOPE.has(key),
   )
-  if (extra.length > 0) problems.push(`unknown fields: ${extra.join(', ')}`)
+  const problems = [
+    ...[title, steps, blocker, why, tried, mode, check].flatMap(field =>
+      field.problem === undefined ? [] : [field.problem],
+    ),
+    ...(extra.length > 0 ? [`unknown fields: ${extra.join(', ')}`] : []),
+  ]
 
   if (
     problems.length > 0 ||
-    title === undefined ||
-    steps === undefined ||
-    blocker === undefined ||
-    why === undefined ||
-    tried === undefined ||
-    mode === undefined
+    title.value === undefined ||
+    steps.value === undefined ||
+    blocker.value === undefined ||
+    why.value === undefined ||
+    tried.value === undefined ||
+    mode.value === undefined
   ) {
     return { problems }
   }
-  const request: HtlRequest = { title, steps, blocker, why, tried, mode }
-  return { request: check === undefined ? request : { ...request, check } }
+  const request: HtlRequest = {
+    title: title.value,
+    steps: steps.value,
+    blocker: blocker.value,
+    why: why.value,
+    tried: tried.value,
+    mode: mode.value,
+  }
+  return {
+    request:
+      check.value === undefined ? request : { ...request, check: check.value },
+  }
 }
 
 export function sameTitle(a: string, b: string): boolean {
@@ -163,7 +180,9 @@ function refusalOf(
   const answered = session.closed.find(
     task => task.decision !== 'accept' && sameTitle(task.title, request.title),
   )
-  if (answered !== undefined) return repeatRefusal(answered)
+  if (answered !== undefined) {
+    return repeatRefusal(answered)
+  }
 
   if (session.secrets !== '1password' || request.blocker !== 'secret') {
     return undefined
@@ -282,7 +301,7 @@ export function inputSchema(
   }
 }
 
-function quoted(task: { id: number; title: string }): string {
+function quoted(task: { readonly id: number; readonly title: string }): string {
   return `#${String(task.id)} "${task.title}"`
 }
 
@@ -408,7 +427,9 @@ export function cardHeader(
     task.mode.toUpperCase(),
     `${String(position)} of ${String(total)}`,
   ]
-  if (!isFocused) parts.push('ctrl+x tab to use')
+  if (!isFocused) {
+    parts.push('ctrl+x tab to use')
+  }
   return parts.join(' · ')
 }
 

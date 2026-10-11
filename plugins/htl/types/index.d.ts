@@ -8,24 +8,24 @@ export type Decision = 'accept' | 'reject' | 'handback'
 export type SecretsMode = '1password' | 'none'
 
 export interface HtlRequest {
-  title: string
-  steps: string
-  blocker: Blocker
-  why: string
-  tried: string
-  mode: Mode
-  check?: string
+  readonly title: string
+  readonly steps: string
+  readonly blocker: Blocker
+  readonly why: string
+  readonly tried: string
+  readonly mode: Mode
+  readonly check?: string
 }
 
 export interface HtlTask extends HtlRequest {
-  id: number
-  isArmed: boolean
+  readonly id: number
+  readonly isArmed: boolean
 }
 
 export interface ClosedTask {
-  id: number
-  title: string
-  decision: Decision
+  readonly id: number
+  readonly title: string
+  readonly decision: Decision
 }
 
 export type View =

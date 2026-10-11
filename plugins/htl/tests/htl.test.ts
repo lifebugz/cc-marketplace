@@ -89,7 +89,9 @@ function setup(on: On, env: Record<string, string> = {}): World {
   })
   on('ui.open', (_$, e) => {
     world.opened.push(e)
-    if (world.isOpenRefused) return { deny: 'no surface draws panes' }
+    if (world.isOpenRefused) {
+      return { deny: 'no surface draws panes' }
+    }
     return {
       value: world.isPlaced
         ? { isPlaced: true }
@@ -143,13 +145,13 @@ function setup(on: On, env: Record<string, string> = {}): World {
   return world
 }
 
-function start($: Engine, isInteractive = true): Promise<unknown> {
+async function start($: Engine, isInteractive = true): Promise<unknown> {
   return $.session.start({ cwd: '/work', surface: 'terminal', isInteractive })
 }
 
 let ids = 0
 
-function assign(
+async function assign(
   $: Engine,
   input: Readonly<Record<string, unknown>>,
   agentId?: string,
@@ -163,7 +165,7 @@ function assign(
   })
 }
 
-function bash(
+async function bash(
   $: Engine,
   agentId?: string,
 ): Promise<{ result?: unknown; deny?: string | undefined }> {
@@ -176,11 +178,11 @@ function bash(
   })
 }
 
-function type($: Engine, text: string): Promise<unknown> {
+async function type($: Engine, text: string): Promise<unknown> {
   return $.prompt.submit({ text, wait: false, origin: COMPOSER })
 }
 
-function runHtl($: Engine): Promise<{ text?: string | undefined }> {
+async function runHtl($: Engine): Promise<{ text?: string | undefined }> {
   return $.command.run({
     command: 'htl',
     args: '',
@@ -189,7 +191,7 @@ function runHtl($: Engine): Promise<{ text?: string | undefined }> {
   })
 }
 
-function endTurn($: Engine, agentId?: string): Promise<{ text: string }> {
+async function endTurn($: Engine, agentId?: string): Promise<{ text: string }> {
   return $.turn.complete({
     answer: 'Waiting for you.',
     durationMs: 1000,

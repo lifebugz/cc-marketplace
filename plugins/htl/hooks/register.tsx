@@ -37,10 +37,10 @@ const view = atom({ plugin: 'htl', key: 'view' } as const, FIRST_CARD)
 
 let queue: Promise<unknown> = Promise.resolve()
 
-function serial<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work, work)
-  queue = run.catch(() => undefined)
-  return run
+async function serial<T>(work: () => Promise<T>): Promise<T> {
+  const job = queue.then(work, work)
+  queue = job.catch(() => undefined)
+  return job
 }
 
 function messageOf(error: unknown): string {
@@ -81,14 +81,18 @@ async function assign(
   secrets: SecretsMode,
 ): Promise<string> {
   const parsed = parseRequest(e)
-  if (parsed.problems !== undefined) return refusalText(parsed.problems)
+  if (parsed.problems !== undefined) {
+    return refusalText(parsed.problems)
+  }
 
   const refusal = validateRequest(parsed.request, {
     open: await read($, tasks),
     closed: await read($, closed),
     secrets,
   })
-  if (refusal !== undefined) return refusal
+  if (refusal !== undefined) {
+    return refusal
+  }
 
   const id = (await update($, nextId, n => n + 1)) - 1
   const task: HtlTask = {
@@ -103,7 +107,9 @@ async function assign(
 
 async function disarm($: EngineInterface): Promise<readonly HtlTask[]> {
   const open = await read($, tasks)
-  if (!open.some(task => task.isArmed)) return open
+  if (!open.some(task => task.isArmed)) {
+    return open
+  }
   return update($, tasks, list =>
     list.map(task => (task.isArmed ? { ...task, isArmed: false } : task)),
   )
@@ -117,7 +123,9 @@ async function decide(
 ): Promise<void> {
   const open = await read($, tasks)
   const task = open.find(one => one.id === taskId)
-  if (task === undefined) return
+  if (task === undefined) {
+    return
+  }
 
   const remaining = await update($, tasks, list =>
     list
@@ -146,7 +154,7 @@ async function decide(
   await $.ui.close({ id: PANE })
 }
 
-function pickDecision(
+async function pickDecision(
   $: EngineInterface,
   taskId: number,
   decision: Decision,
@@ -154,7 +162,7 @@ function pickDecision(
   return update($, view, (): View => ({ step: 'message', taskId, decision }))
 }
 
-function showNext(
+async function showNext(
   $: EngineInterface,
   open: readonly HtlTask[],
   taskId: number,
@@ -167,7 +175,10 @@ function showNext(
   }))
 }
 
-function backToCard($: EngineInterface, taskId: number): Promise<unknown> {
+async function backToCard(
+  $: EngineInterface,
+  taskId: number,
+): Promise<unknown> {
   return update($, view, (): View => ({ step: 'decide', taskId }))
 }
 
@@ -222,35 +233,47 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'mcp__htl__assign_task' }, async ($, e) => {
-    if (e.agentId !== undefined) return { result: SUBAGENT_REFUSAL }
-    return { result: await serial(() => assign($, e, secrets)) }
+    if (e.agentId !== undefined) {
+      return { result: SUBAGENT_REFUSAL }
+    }
+    return { result: await serial(async () => assign($, e, secrets)) }
   }).catch((_$, _e, next) => ({
     result: `htl failed: ${next.error.message ?? next.error.kind}`,
   }))
 
   on('tool.call', async ($, e, next) => {
-    if (e.tool === TOOL || e.agentId !== undefined) return next(e)
+    if (e.tool === TOOL || e.agentId !== undefined) {
+      return next(e)
+    }
     const armed = (await read($, tasks)).find(task => task.isArmed)
-    if (armed === undefined) return next(e)
+    if (armed === undefined) {
+      return next(e)
+    }
     return { deny: gateDenial(armed) }
-  }).catch((_$, e, next) => next(e))
+  }).catch(async (_$, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {
     const open = await disarm($)
-    if (open.length === 0) return next(e)
+    if (open.length === 0) {
+      return next(e)
+    }
     return next({ ...e, context: [...(e.context ?? []), contextLine(open)] })
   })
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId !== undefined) return result
+    if (e.agentId !== undefined) {
+      return result
+    }
     const open = await read($, tasks)
     return open.length === 0 ? result : { ...result, text: reminderLine(open) }
   })
 
   on('command.run', { command: 'htl' }, async $ => {
     const open = await read($, tasks)
-    if (open.length === 0) return { text: 'No open HTL tasks.' }
+    if (open.length === 0) {
+      return { text: 'No open HTL tasks.' }
+    }
     try {
       const opened = await $.ui.open({
         id: PANE,
@@ -279,7 +302,9 @@ export const register: Register = (on, options) => {
       open.findIndex(task => task.id === current.taskId),
     )
     const task = open[at]
-    if (task === undefined) return <Text dimColor>No open HTL tasks.</Text>
+    if (task === undefined) {
+      return <Text dimColor>No open HTL tasks.</Text>
+    }
 
     const card = (
       <Box flexDirection="column">
@@ -301,7 +326,9 @@ export const register: Register = (on, options) => {
     if (current.step === 'message' && current.taskId === task.id) {
       const { decision } = current
       const send = (value: string): void => {
-        run($, 'the decision failed', () => decide($, task.id, decision, value))
+        run($, 'the decision failed', async () =>
+          decide($, task.id, decision, value),
+        )
       }
       return (
         <Box flexDirection="column" rowGap={1}>
@@ -334,7 +361,7 @@ export const register: Register = (on, options) => {
             plain
             dimColor
             onPress={() => {
-              run($, 'back failed', () => backToCard($, task.id))
+              run($, 'back failed', async () => backToCard($, task.id))
             }}
           >
             Back
@@ -344,7 +371,9 @@ export const register: Register = (on, options) => {
     }
 
     const choose = (decision: Decision) => (): void => {
-      run($, 'the choice failed', () => pickDecision($, task.id, decision))
+      run($, 'the choice failed', async () =>
+        pickDecision($, task.id, decision),
+      )
     }
     return (
       <Box flexDirection="column" rowGap={1}>
@@ -365,7 +394,7 @@ export const register: Register = (on, options) => {
               hotkey="n"
               plain
               onPress={() => {
-                run($, 'next failed', () => showNext($, open, task.id))
+                run($, 'next failed', async () => showNext($, open, task.id))
               }}
             >
               Next
