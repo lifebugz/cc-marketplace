@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.strict.json",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
+    "typeRoots": ["./.claude-types"],
+    "types": ["claude-code", "claude-code-tools"]
+  },
+  "include": ["${configDir}/hooks", "${configDir}/types", "${configDir}/tests"]
+}
