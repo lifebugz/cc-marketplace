@@ -25,6 +25,11 @@
         "sha": "6407bfae0c071977dcdcf0943bdee0ecee94614d"
       },
       "homepage": "https://github.com/lifebugz/cc-mermaid"
+    },
+    {
+      "name": "htl",
+      "source": "./plugins/htl",
+      "description": "Human in the loop: Claude hands you a job it truly cannot do (a 2FA login, a missing secret, a physical step, a payment), you answer in a pane, and Claude carries on."
     }
   ]
 }

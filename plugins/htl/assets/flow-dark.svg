@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 1000" width="880" height="1000" role="img" aria-label="How htl works. Turn 1: Claude hits a job it cannot do, tries its own tools, then calls assign_task. The mod checks the request and either refuses it with what to fix, or shows the task in a pane and tells Claude it is assigned, so Claude ends its turn. While Claude is idle, you do the job and pick Accept, Reject or You can do this, with an optional message. The mod sends that as your message, which starts turn 2: Claude checks and continues, finds another way, or does the job itself.">
+  <title>How htl works. Turn 1: Claude hits a job it cannot do, tries its own tools, then calls assign_task. The mod checks the request and either refuses it with what to fix, or shows the task in a pane and tells Claude it is assigned, so Claude ends its turn. While Claude is idle, you do the job and pick Accept, Reject or You can do this, with an optional message. The mod sends that as your message, which starts turn 2: Claude checks and continues, finds another way, or does the job itself.</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9198a1"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/>
+    </marker>
+  </defs>
+  <rect width="880" height="1000" rx="12" fill="#0d1117"/>
+  <rect x="15" y="16" width="270" height="968" rx="12" fill="#151b23"/>
+  <rect x="305" y="16" width="270" height="968" rx="12" fill="#151b23"/>
+  <rect x="595" y="16" width="270" height="968" rx="12" fill="#151b23"/>
+  <text x="150" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#e6edf3" text-anchor="middle">Claude</text>
+  <text x="440" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#4493f8" text-anchor="middle">htl (this mod)</text>
+  <text x="730" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#e6edf3" text-anchor="middle">You</text>
+  <line x1="16" y1="78" x2="864" y2="78" stroke="#9198a1" stroke-width="1.2" stroke-dasharray="3 5"/>
+  <rect x="341.9" y="66" width="196.20000000000002" height="24" rx="12" fill="#262c36"/>
+  <text x="440.0" y="82" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#9198a1" text-anchor="middle">TURN 1 · CLAUDE IS WORKING</text>
+  <rect x="43" y="104" width="214" height="53" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="126.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Hits a job it can&#x27;t do</text>
+  <text x="150" y="144.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">tries its own tools first</text>
+  <rect x="43" y="210" width="214" height="53" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="232.0" font-family="ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">assign_task</text>
+  <text x="150" y="250.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">title · steps · blocker · mode</text>
+  <polyline points="150,157 150,208" fill="none" stroke="#9198a1" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="158" y="187.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="start">still blocked</text>
+  <rect x="333" y="196" width="214" height="87" rx="8" fill="#0c2a4d" stroke="#4493f8" stroke-width="1.5"/>
+  <text x="440" y="218.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Checks the request</text>
+  <text x="440" y="236.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">every field filled in</text>
+  <text x="440" y="253.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">at most 3 open, no repeats</text>
+  <text x="440" y="270.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">1Password first for secrets</text>
+  <polyline points="257,230 331,230" fill="none" stroke="#9198a1" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="295.0" y="222" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">calls</text>
+  <polyline points="333,249 259,249" fill="none" stroke="#4493f8" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#arrow-accent)"/>
+  <text x="295.0" y="267" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="middle">refused:</text>
+  <text x="295.0" y="282" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="middle">what to fix</text>
+  <rect x="333" y="352" width="214" height="70" rx="8" fill="#0c2a4d" stroke="#4493f8" stroke-width="1.5"/>
+  <text x="440" y="374.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Shows the task</text>
+  <text x="440" y="392.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">pane + toast</text>
+  <text x="440" y="409.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">status line if no room</text>
+  <polyline points="440,283 440,350" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <text x="448" y="321.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="start">accepted</text>
+  <rect x="43" y="352" width="214" height="70" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="374.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Ends its turn</text>
+  <text x="150" y="392.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">now: other tools refused</text>
+  <text x="150" y="409.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">parallel: after other work</text>
+  <polyline points="333,378 259,378" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <text x="295.0" y="370" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="middle">Assigned #1</text>
+  <text x="295.0" y="396" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="middle">at once</text>
+  <rect x="623" y="352" width="214" height="53" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="730" y="374.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Sees the task card</text>
+  <text x="730" y="392.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">steps, why, what Claude tried</text>
+  <polyline points="547,378 621,378" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <text x="585.0" y="370" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="middle">opens</text>
+  <line x1="16" y1="480" x2="864" y2="480" stroke="#9198a1" stroke-width="1.2" stroke-dasharray="3 5"/>
+  <rect x="331.1" y="468" width="217.8" height="24" rx="12" fill="#262c36"/>
+  <text x="440.0" y="484" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#9198a1" text-anchor="middle">CLAUDE IS IDLE · NO TURN RUNS</text>
+  <rect x="623" y="512" width="214" height="53" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="730" y="534.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Does the job</text>
+  <text x="730" y="552.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">logs in · plugs in · pays</text>
+  <polyline points="730,405 730,510" fill="none" stroke="#9198a1" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <rect x="623" y="618" width="214" height="87" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="730" y="640.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Picks an answer</text>
+  <text x="730" y="658.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">a Accept · r Reject</text>
+  <text x="730" y="675.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">y You can do this</text>
+  <text x="730" y="692.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">+ an optional message</text>
+  <polyline points="730,565 730,616" fill="none" stroke="#9198a1" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <rect x="333" y="618" width="214" height="70" rx="8" fill="#0c2a4d" stroke="#4493f8" stroke-width="1.5"/>
+  <text x="440" y="640.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Sends it as your message</text>
+  <text x="440" y="658.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">the gate on Claude lifts</text>
+  <text x="440" y="675.0" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">a new turn starts</text>
+  <polyline points="623,652 549,652" fill="none" stroke="#9198a1" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="585.0" y="644" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">Enter</text>
+  <line x1="16" y1="758" x2="864" y2="758" stroke="#9198a1" stroke-width="1.2" stroke-dasharray="3 5"/>
+  <rect x="341.9" y="746" width="196.20000000000002" height="24" rx="12" fill="#262c36"/>
+  <text x="440.0" y="762" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#9198a1" text-anchor="middle">TURN 2 · CLAUDE CARRIES ON</text>
+  <rect x="43" y="786" width="214" height="56" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="809.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Accept</text>
+  <text x="150" y="827.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">runs its check, then continues</text>
+  <polyline points="300,814 259,814" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <rect x="43" y="852" width="214" height="56" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="875.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">Reject</text>
+  <text x="150" y="893.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">finds another way, or explains</text>
+  <polyline points="300,880 259,880" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <rect x="43" y="918" width="214" height="56" rx="8" fill="#0d1117" stroke="#3d444d" stroke-width="1.5"/>
+  <text x="150" y="941.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="middle">You can do this</text>
+  <text x="150" y="959.5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#9198a1" text-anchor="middle">does it with its own tools</text>
+  <polyline points="300,946 259,946" fill="none" stroke="#4493f8" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+  <polyline points="333,652 300,652 300,946" fill="none" stroke="#4493f8" stroke-width="1.6"/>
+  <text x="290" y="704" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="end">your words</text>
+  <text x="290" y="720" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" fill="#4493f8" text-anchor="end">start turn 2</text>
+</svg>

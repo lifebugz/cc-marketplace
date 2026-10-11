@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: accepted-verifies
+context:
+  scaffold_script: scaffold.sh
+  history_file: history.jsonl
