@@ -58,6 +58,15 @@ take minutes: `no-misused-promises` and `strict-void-return` check each
 `on(...)` call against every signature of `on`, and TypeScript works out those
 types once per mod.
 
+`eslint --fix` lints again after each round of fixes, and can wait that long
+each time. To autofix fast, turn those two rules off for the fix, then run the
+full lint:
+
+```shell
+bunx eslint --fix --rule '{"@typescript-eslint/no-misused-promises":"off","@typescript-eslint/strict-void-return":"off"}' plugins/<mod>
+bun run lint plugins/<mod>
+```
+
 A mod's `tsconfig.json` is one line:
 
 ```json
