@@ -5,7 +5,13 @@ import jsdoc from 'eslint-plugin-jsdoc'
 import tseslint from 'typescript-eslint'
 
 // Types the engine hands a mod: mods cannot make them readonly.
-const engineTypes = ['EngineInterface', 'Engine', 'ProcessRunResult']
+const engineTypes = [
+  'EngineInterface',
+  'Engine',
+  'ModelCompleteResult',
+  'ProcessRunResult',
+]
+const engineTestTypes = ['MockClock']
 
 export default defineConfig(
   {
@@ -57,6 +63,11 @@ export default defineConfig(
           ignoreInferredTypes: true,
           allow: [
             { from: 'package', package: 'claude-code', name: engineTypes },
+            {
+              from: 'package',
+              package: 'claude-code/testing',
+              name: engineTestTypes,
+            },
           ],
         },
       ],
@@ -80,7 +91,7 @@ export default defineConfig(
       'no-restricted-syntax': [
         'error',
         {
-          selector: `:matches(TSTypeAliasDeclaration, TSInterfaceDeclaration, ClassDeclaration, TSEnumDeclaration)[id.name=/^(${engineTypes.join('|')})$/]:not(TSModuleDeclaration[id.value='claude-code'] *)`,
+          selector: `:matches(TSTypeAliasDeclaration, TSInterfaceDeclaration, ClassDeclaration, TSEnumDeclaration)[id.name=/^(${[...engineTypes, ...engineTestTypes].join('|')})$/]:not(TSModuleDeclaration[id.value=/^claude-code(\\/testing)?$/] *)`,
           message:
             'prefer-readonly-parameter-types allows this name as an engine type, whatever declares it. Rename the type.',
         },
@@ -119,7 +130,6 @@ export default defineConfig(
         delay: 'readonly',
         $: 'readonly',
         ObjC: 'readonly',
-        console: 'readonly',
       },
     },
     plugins: { jsdoc },
