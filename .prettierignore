@@ -1,0 +1,6 @@
+.claude/
+.claude-types/
+plugins/*/.claude-plugin/types/
+bun.lock
+# Eval prompts and grader files are model inputs: keep them byte-exact.
+plugins/*/evals/
