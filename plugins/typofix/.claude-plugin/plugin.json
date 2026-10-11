@@ -1,0 +1,23 @@
+{
+  "name": "typofix",
+  "version": "0.1.0",
+  "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask.",
+  "author": {
+    "name": "lifebugz"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Spelling language",
+      "description": "A language code such as en_US or de. Leave empty to detect the language automatically.",
+      "default": ""
+    },
+    "hunspell": {
+      "type": "string",
+      "title": "hunspell dictionary",
+      "description": "On macOS, hunspell also checks English words with this dictionary, such as en_US or en_GB, to catch typos macOS accepts. Leave empty to not use hunspell.",
+      "default": "en_US"
+    }
+  }
+}
