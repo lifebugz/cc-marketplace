@@ -1,41 +1,47 @@
 export type Status = 'waiting' | 'busy' | 'idle'
 
 export type Host =
-  | { kind: 'ghostty'; tty: string }
-  | { kind: 'iterm'; tty: string }
-  | { kind: 'terminal'; tty: string }
-  | { kind: 'tmux'; tty: string }
-  | { kind: 'vscode-panel'; app: string }
-  | { kind: 'vscode-terminal'; app: string }
-  | { kind: 'other'; name: string }
+  | { readonly kind: 'ghostty'; readonly tty: string }
+  | { readonly kind: 'iterm'; readonly tty: string }
+  | { readonly kind: 'terminal'; readonly tty: string }
+  | { readonly kind: 'tmux'; readonly tty: string }
+  | { readonly kind: 'vscode-panel'; readonly app: string }
+  | { readonly kind: 'vscode-terminal'; readonly app: string }
+  | { readonly kind: 'other'; readonly name: string }
 
 export type Target =
-  | { kind: 'ghostty'; terminalId: string }
-  | { kind: 'ghostty-tty'; tty: string }
-  | { kind: 'iterm'; tty: string }
-  | { kind: 'terminal'; tty: string }
-  | { kind: 'tmux'; paneId: string; session: string }
-  | { kind: 'vscode-panel'; app: string; cwd: string; sessionId: string }
-  | { kind: 'vscode-terminal'; app: string }
+  | { readonly kind: 'ghostty'; readonly terminalId: string }
+  | { readonly kind: 'ghostty-tty'; readonly tty: string }
+  | { readonly kind: 'iterm'; readonly tty: string }
+  | { readonly kind: 'terminal'; readonly tty: string }
+  | { readonly kind: 'tmux'; readonly paneId: string; readonly session: string }
+  | {
+      readonly kind: 'vscode-panel'
+      readonly app: string
+      readonly cwd: string
+      readonly sessionId: string
+    }
+  | { readonly kind: 'vscode-terminal'; readonly app: string }
 
 export interface RowBase {
-  sessionId: string
-  title: string
+  readonly sessionId: string
+  readonly title: string
   /** The working directory with the home folder written as `~`. */
-  path: string
-  place: string
+  readonly path: string
+  readonly place: string
 }
 
 export interface LiveFields {
-  status: Status
-  waitingFor: string | null
+  readonly status: Status
+  readonly waitingFor: string | null
 }
 
 export type Row =
-  | (RowBase & LiveFields & { kind: 'switch'; target: Target })
-  | (RowBase & LiveFields & { kind: 'stuck'; reason: string })
-  | (RowBase & LiveFields & { kind: 'this' })
-  | (RowBase & { kind: 'background'; state: string | null })
+  | (RowBase &
+      LiveFields & { readonly kind: 'switch'; readonly target: Target })
+  | (RowBase & LiveFields & { readonly kind: 'stuck'; readonly reason: string })
+  | (RowBase & LiveFields & { readonly kind: 'this' })
+  | (RowBase & { readonly kind: 'background'; readonly state: string | null })
 
 declare module 'claude-code' {
   interface PluginState {

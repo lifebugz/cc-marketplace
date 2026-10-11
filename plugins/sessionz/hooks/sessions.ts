@@ -2,79 +2,79 @@ import type { Host, Row, Status, Target } from '../types'
 import { booleanOf, isRecord, numberOf, parseJson, stringOf } from './guards'
 
 export interface Agent {
-  sessionId: string
-  kind: 'interactive' | 'background'
-  name: string | null
-  cwd: string
-  pid: number | null
-  status: Status | null
-  waitingFor: string | null
-  state: string | null
+  readonly sessionId: string
+  readonly kind: 'interactive' | 'background'
+  readonly name: string | null
+  readonly cwd: string
+  readonly pid: number | null
+  readonly status: Status | null
+  readonly waitingFor: string | null
+  readonly state: string | null
 }
 
 export interface Parsed<T> {
-  items: T[]
-  dropped: number
+  readonly items: T[]
+  readonly dropped: number
 }
 
 export interface Proc {
-  pid: number
-  ppid: number
-  tty: string
-  comm: string
+  readonly pid: number
+  readonly ppid: number
+  readonly tty: string
+  readonly comm: string
 }
 
 export interface GhosttyTerminal {
-  window: number
-  windowId: string
-  tab: number
-  selected: boolean
-  id: string
-  title: string
-  cwd: string
+  readonly window: number
+  readonly windowId: string
+  readonly tab: number
+  readonly selected: boolean
+  readonly id: string
+  readonly title: string
+  readonly cwd: string
 }
 
 export interface GhosttySession {
-  sessionId: string
-  tty: string
-  name: string | null
-  cwd: string
+  readonly sessionId: string
+  readonly tty: string
+  readonly name: string | null
+  readonly cwd: string
 }
 
 export interface TmuxPane {
-  tty: string
-  session: string
-  window: number
-  paneId: string
+  readonly tty: string
+  readonly session: string
+  readonly window: number
+  readonly paneId: string
 }
 
 export interface TmuxClient {
-  tty: string
-  session: string
-  activity: number
-  pid: number
+  readonly tty: string
+  readonly session: string
+  readonly activity: number
+  readonly pid: number
 }
 
 export interface World {
-  agents: readonly Agent[]
-  selfId: string
-  home: string
-  canSwitch: boolean
-  hosts: ReadonlyMap<number, Host>
-  ghostty: readonly GhosttyTerminal[]
-  matched: ReadonlyMap<string, GhosttyTerminal>
-  panes: readonly TmuxPane[] | undefined
-  clients: readonly TmuxClient[] | undefined
+  readonly agents: readonly Agent[]
+  readonly selfId: string
+  readonly home: string
+  readonly canSwitch: boolean
+  readonly hosts: ReadonlyMap<number, Host>
+  readonly ghostty: readonly GhosttyTerminal[]
+  readonly matched: ReadonlyMap<string, GhosttyTerminal>
+  readonly panes: readonly TmuxPane[] | undefined
+  readonly clients: readonly TmuxClient[] | undefined
 }
 
 export interface RowText {
-  label: string
-  detail: string
+  readonly label: string
+  readonly detail: string
 }
 
 export interface RowWidths {
-  label: number
-  detail: number
+  readonly label: number
+  readonly detail: number
 }
 
 export const HOTKEYS: readonly string[] =
@@ -104,14 +104,22 @@ function statusOf(value: string | undefined): Status | null {
 }
 
 function agentOf(value: unknown): Agent | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isRecord(value)) {
+    return undefined
+  }
   const kind = stringOf(value, 'kind')
   const cwd = stringOf(value, 'cwd')
   const sessionId = stringOf(value, 'sessionId') ?? stringOf(value, 'id')
-  if (kind !== 'interactive' && kind !== 'background') return undefined
-  if (cwd === undefined || sessionId === undefined) return undefined
+  if (kind !== 'interactive' && kind !== 'background') {
+    return undefined
+  }
+  if (cwd === undefined || sessionId === undefined) {
+    return undefined
+  }
   const pid = numberOf(value, 'pid') ?? null
-  if (kind === 'interactive' && pid === null) return undefined
+  if (kind === 'interactive' && pid === null) {
+    return undefined
+  }
   return {
     sessionId,
     kind,
@@ -126,7 +134,9 @@ function agentOf(value: unknown): Agent | undefined {
 
 export function parseAgents(stdout: string): Parsed<Agent> | undefined {
   const data = parseJson(stdout)
-  if (!Array.isArray(data)) return undefined
+  if (!Array.isArray(data)) {
+    return undefined
+  }
   const entries: readonly unknown[] = data
   const items = entries.map(agentOf).filter(isDefined)
   return { items, dropped: entries.length - items.length }
@@ -137,8 +147,12 @@ export function parsePs(stdout: string): Map<number, Proc> {
   for (const line of stdout.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*\S)\s*$/.exec(line)
     const [, pid, ppid, tty, comm] = match ?? []
-    if (pid === undefined || ppid === undefined) continue
-    if (tty === undefined || comm === undefined) continue
+    if (pid === undefined || ppid === undefined) {
+      continue
+    }
+    if (tty === undefined || comm === undefined) {
+      continue
+    }
     table.set(Number(pid), {
       pid: Number(pid),
       ppid: Number(ppid),
@@ -163,7 +177,9 @@ function hostAt(proc: Proc, tty: string): Host | undefined {
     return tty === '' ? { kind: 'other', name: 'tmux' } : { kind: 'tmux', tty }
   }
   const app = appBundle(proc.comm)
-  if (app === undefined) return undefined
+  if (app === undefined) {
+    return undefined
+  }
   const bundle = baseName(app)
   const name = bundle.replace(/\.app$/, '')
   if (bundle === 'Visual Studio Code.app') {
@@ -171,21 +187,35 @@ function hostAt(proc: Proc, tty: string): Host | undefined {
       ? { kind: 'vscode-panel', app }
       : { kind: 'vscode-terminal', app }
   }
-  if (tty === '') return { kind: 'other', name }
-  if (bundle === 'Ghostty.app') return { kind: 'ghostty', tty }
-  if (bundle === 'iTerm.app') return { kind: 'iterm', tty }
-  if (bundle === 'Terminal.app') return { kind: 'terminal', tty }
+  if (tty === '') {
+    return { kind: 'other', name }
+  }
+  if (bundle === 'Ghostty.app') {
+    return { kind: 'ghostty', tty }
+  }
+  if (bundle === 'iTerm.app') {
+    return { kind: 'iterm', tty }
+  }
+  if (bundle === 'Terminal.app') {
+    return { kind: 'terminal', tty }
+  }
   return { kind: 'other', name }
 }
 
 export function hostOf(pid: number, table: ReadonlyMap<number, Proc>): Host {
   const self = table.get(pid)
-  if (self === undefined) return { kind: 'other', name: 'process not found' }
+  if (self === undefined) {
+    return { kind: 'other', name: 'process not found' }
+  }
   let proc = table.get(self.ppid)
   for (let depth = 0; proc !== undefined && depth < MAX_DEPTH; depth++) {
     const host = hostAt(proc, self.tty)
-    if (host !== undefined) return host
-    if (proc.ppid === proc.pid) break
+    if (host !== undefined) {
+      return host
+    }
+    if (proc.ppid === proc.pid) {
+      break
+    }
     proc = table.get(proc.ppid)
   }
   return { kind: 'other', name: 'unknown app' }
@@ -208,7 +238,9 @@ export function hostTty(host: Host): string | undefined {
 }
 
 function ghosttyTerminalOf(value: unknown): GhosttyTerminal | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isRecord(value)) {
+    return undefined
+  }
   const window = numberOf(value, 'window')
   const windowId = stringOf(value, 'windowId')
   const tab = numberOf(value, 'tab')
@@ -219,15 +251,21 @@ function ghosttyTerminalOf(value: unknown): GhosttyTerminal | undefined {
   if (window === undefined || windowId === undefined || tab === undefined) {
     return undefined
   }
-  if (selected === undefined || id === undefined) return undefined
-  if (title === undefined || cwd === undefined) return undefined
+  if (selected === undefined || id === undefined) {
+    return undefined
+  }
+  if (title === undefined || cwd === undefined) {
+    return undefined
+  }
   return { window, windowId, tab, selected, id, title, cwd }
 }
 
 export function ghosttyTerminalsOf(
   value: unknown,
 ): Parsed<GhosttyTerminal> | undefined {
-  if (!Array.isArray(value)) return undefined
+  if (!Array.isArray(value)) {
+    return undefined
+  }
   const entries: readonly unknown[] = value
   const items = entries.map(ghosttyTerminalOf).filter(isDefined)
   return { items, dropped: entries.length - items.length }
@@ -270,7 +308,9 @@ export function matchGhostty(
   }
 
   for (const session of sessions) {
-    if (session.name === null) continue
+    if (session.name === null) {
+      continue
+    }
     const hits = terminals.filter(t => stripTitle(t.title) === session.name)
     const [hit] = hits
     if (hits.length === 1 && hit !== undefined && !claimed.has(hit.id)) {
@@ -279,7 +319,9 @@ export function matchGhostty(
   }
 
   for (const session of sessions) {
-    if (matched.has(session.sessionId)) continue
+    if (matched.has(session.sessionId)) {
+      continue
+    }
     const id = remembered.get(session.tty)
     const terminal = terminals.find(t => t.id === id)
     if (terminal !== undefined && !claimed.has(terminal.id)) {
@@ -299,9 +341,13 @@ export function matchGhostty(
   )
   for (const [session, hits] of candidates) {
     const [hit] = hits
-    if (hits.length !== 1 || hit === undefined) continue
+    if (hits.length !== 1 || hit === undefined) {
+      continue
+    }
     const rivals = [...candidates.values()].filter(other => other.includes(hit))
-    if (rivals.length === 1) claim(session, hit)
+    if (rivals.length === 1) {
+      claim(session, hit)
+    }
   }
   return matched
 }
@@ -372,9 +418,9 @@ function ghosttyPlace(
 }
 
 interface Placed {
-  place: string
-  order: number
-  target: Target | { reason: string }
+  readonly place: string
+  readonly order: number
+  readonly target: Target | { reason: string }
 }
 
 function placeOf(agent: Agent, host: Host, world: World): Placed {
@@ -525,9 +571,11 @@ export function buildRows(world: World): Row[] {
     .map(agent => rowOf(agent, world))
     .sort(
       (a, b) =>
-        rank(a.row) - rank(b.row) ||
-        a.order - b.order ||
-        a.row.title.localeCompare(b.row.title),
+        [
+          rank(a.row) - rank(b.row),
+          a.order - b.order,
+          a.row.title.localeCompare(b.row.title),
+        ].find(difference => difference !== 0) ?? 0,
     )
     .map(({ row }) => row)
 }
@@ -542,9 +590,13 @@ export function assignKeys(
   )
   const used = new Set(keys.values())
   for (const row of rows) {
-    if (row.kind !== 'switch' || keys.has(row.sessionId)) continue
+    if (row.kind !== 'switch' || keys.has(row.sessionId)) {
+      continue
+    }
     const free = HOTKEYS.find(key => !used.has(key))
-    if (free === undefined) break
+    if (free === undefined) {
+      break
+    }
     keys.set(row.sessionId, free)
     used.add(free)
   }
@@ -552,27 +604,39 @@ export function assignKeys(
 }
 
 export function tildePath(path: string, home: string): string {
-  if (home === '' || home === '/') return path
-  if (path === home) return '~'
+  if (home === '' || home === '/') {
+    return path
+  }
+  if (path === home) {
+    return '~'
+  }
   return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 }
 
 export function cut(text: string, width: number): string {
-  if (text.length <= width) return text
+  if (text.length <= width) {
+    return text
+  }
   return width <= 0 ? '' : `${text.slice(0, width - 1)}…`
 }
 
 /** Cuts a path in the middle so its last folder stays readable. */
 export function shortenPath(path: string, width: number): string {
-  if (path.length <= width) return path
+  if (path.length <= width) {
+    return path
+  }
   const parts = path.split('/')
   const last = parts.pop() ?? ''
   for (let keep = parts.length - 1; keep >= 1; keep--) {
     const shortened = `${parts.slice(0, keep).join('/')}/…/${last}`
-    if (shortened.length <= width) return shortened
+    if (shortened.length <= width) {
+      return shortened
+    }
   }
   const tail = `…/${last}`
-  if (tail.length <= width) return tail
+  if (tail.length <= width) {
+    return tail
+  }
   return width <= 1 ? cut(last, width) : `…${last.slice(-(width - 1))}`
 }
 
@@ -664,13 +728,17 @@ export function claudeCandidates(
     .sort((a, b) => {
       for (const [i, part] of b.version.entries()) {
         const diff = part - (a.version[i] ?? 0)
-        if (diff !== 0) return diff
+        if (diff !== 0) {
+          return diff
+        }
       }
       return 0
     })
     .at(0)
   const candidates = ['claude']
-  if (home !== '') candidates.push(`${home}/.local/bin/claude`)
+  if (home !== '') {
+    candidates.push(`${home}/.local/bin/claude`)
+  }
   if (newest !== undefined && home !== '') {
     candidates.push(
       `${home}/.vscode/extensions/${newest.name}/resources/native-binary/claude`,

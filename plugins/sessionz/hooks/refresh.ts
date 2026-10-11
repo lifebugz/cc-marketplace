@@ -29,30 +29,34 @@ import {
 
 /** What a refresh reads beside processes; register.tsx builds it from `$`. */
 export interface WorldIo extends Io {
-  home: string
-  selfId: string
+  readonly home: string
+  readonly selfId: string
   /** Whether `osascript` exists, so tabs can be switched at all. */
-  canSwitch: () => Promise<boolean>
+  readonly canSwitch: () => Promise<boolean>
   /** Names in ~/.vscode/extensions, empty when there is none. */
-  extensions: () => Promise<string[]>
-  debug: (text: string) => void
+  readonly extensions: () => Promise<string[]>
+  readonly debug: (text: string) => void
 }
 
-export interface Caches {
+export class Caches {
   /** pid → the app the session runs in; a pid's parents never change. */
-  hosts: Map<number, Host>
+  readonly hosts = new Map<number, Host>()
   /** tty → the Ghostty terminal the marker found showing it. */
-  remembered: Map<string, string>
-  claude: string | undefined
-  canSwitch: boolean | undefined
-}
+  readonly remembered = new Map<string, string>()
+  #claude: string | undefined
+  #canSwitch: boolean | undefined
 
-export function emptyCaches(): Caches {
-  return {
-    hosts: new Map(),
-    remembered: new Map(),
-    claude: undefined,
-    canSwitch: undefined,
+  claude(): string | undefined {
+    return this.#claude
+  }
+
+  setClaude(program: string | undefined): void {
+    this.#claude = program
+  }
+
+  async canSwitch(io: WorldIo): Promise<boolean> {
+    this.#canSwitch ??= await io.canSwitch()
+    return this.#canSwitch
   }
 }
 
@@ -60,10 +64,11 @@ async function runAgents(
   io: WorldIo,
   caches: Caches,
 ): Promise<ProcessRunResult | string> {
+  const known = caches.claude()
   const candidates =
-    caches.claude === undefined
+    known === undefined
       ? claudeCandidates(io.home, await io.extensions())
-      : [caches.claude]
+      : [known]
   let reason = 'claude was not found'
   for (const program of candidates) {
     const ran = await io.run([program, 'agents', '--json'])
@@ -71,10 +76,10 @@ async function runAgents(
       reason = ran
       continue
     }
-    caches.claude = program
+    caches.setClaude(program)
     return ran
   }
-  caches.claude = undefined
+  caches.setClaude(undefined)
   return reason
 }
 
@@ -85,17 +90,23 @@ async function readHosts(
 ): Promise<void> {
   const live = new Set(agents.flatMap(agent => agent.pid ?? []))
   for (const pid of caches.hosts.keys()) {
-    if (!live.has(pid)) caches.hosts.delete(pid)
+    if (!live.has(pid)) {
+      caches.hosts.delete(pid)
+    }
   }
   const fresh = [...live].filter(pid => !caches.hosts.has(pid))
-  if (fresh.length === 0) return
+  if (fresh.length === 0) {
+    return
+  }
   const ps = await io.run(PS_ARGV)
   if (typeof ps === 'string') {
     io.debug(ps)
     return
   }
   const table = parsePs(ps.stdout)
-  for (const pid of fresh) caches.hosts.set(pid, hostOf(pid, table))
+  for (const pid of fresh) {
+    caches.hosts.set(pid, hostOf(pid, table))
+  }
 }
 
 async function readGhostty(io: WorldIo): Promise<GhosttyTerminal[]> {
@@ -143,7 +154,9 @@ function forgetClosedTerminals(
 ): void {
   const open = new Set(terminals.map(terminal => terminal.id))
   for (const [tty, id] of caches.remembered) {
-    if (!open.has(id)) caches.remembered.delete(tty)
+    if (!open.has(id)) {
+      caches.remembered.delete(tty)
+    }
   }
 }
 
@@ -153,17 +166,21 @@ export async function readWorld(
   caches: Caches,
 ): Promise<World | string> {
   const ran = await runAgents(io, caches)
-  if (typeof ran === 'string') return ran
+  if (typeof ran === 'string') {
+    return ran
+  }
   if (ran.exitCode !== 0) {
     return `claude agents --json failed: ${firstLine(ran.stderr)}`
   }
   const parsed = parseAgents(ran.stdout)
-  if (parsed === undefined) return 'claude agents --json printed no list'
+  if (parsed === undefined) {
+    return 'claude agents --json printed no list'
+  }
   if (parsed.dropped > 0) {
     io.debug(`dropped ${String(parsed.dropped)} unreadable session entries`)
   }
   const agents = parsed.items
-  caches.canSwitch ??= await io.canSwitch()
+  const canSwitch = await caches.canSwitch(io)
   await readHosts(io, caches, agents)
 
   const hostOfAgent = (agent: Agent): Host | undefined =>
@@ -181,9 +198,10 @@ export async function readWorld(
         ]
       : []
   })
-  const ghostty =
-    inGhostty.length > 0 && caches.canSwitch ? await readGhostty(io) : []
-  if (ghostty.length > 0) forgetClosedTerminals(caches, ghostty)
+  const ghostty = inGhostty.length > 0 && canSwitch ? await readGhostty(io) : []
+  if (ghostty.length > 0) {
+    forgetClosedTerminals(caches, ghostty)
+  }
   const usesTmux = agents.some(agent => hostOfAgent(agent)?.kind === 'tmux')
   const [panes, clients] = usesTmux
     ? await readTmux(io)
@@ -193,7 +211,7 @@ export async function readWorld(
     agents,
     selfId: io.selfId,
     home: io.home,
-    canSwitch: caches.canSwitch,
+    canSwitch,
     hosts: caches.hosts,
     ghostty,
     matched: matchGhostty(inGhostty, ghostty, caches.remembered),

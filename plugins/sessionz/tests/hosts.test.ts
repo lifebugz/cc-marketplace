@@ -18,29 +18,26 @@ const VSCODE = '/Applications/Visual Studio Code.app'
 type Answer = (argv: readonly string[]) => ProcessRunResult | string
 
 interface Fake {
-  io: Io
-  argvs: string[][]
-  slept: number[]
+  readonly io: Io
+  readonly argvs: string[][]
+  readonly slept: number[]
 }
 
 function fake(answer: Answer = () => ran('{"ok":true}')): Fake {
   const argvs: string[][] = []
   const slept: number[] = []
-  return {
-    argvs,
-    slept,
-    io: {
-      root: ROOT,
-      run: argv => {
-        argvs.push([...argv])
-        return Promise.resolve(answer(argv))
-      },
-      sleep: ms => {
-        slept.push(ms)
-        return Promise.resolve()
-      },
+  const io: Io = {
+    root: ROOT,
+    run: async argv => {
+      argvs.push([...argv])
+      return Promise.resolve(answer(argv))
+    },
+    sleep: async ms => {
+      slept.push(ms)
+      return Promise.resolve()
     },
   }
+  return { argvs, slept, io }
 }
 
 describe('reading what osascript printed', () => {
@@ -118,7 +115,9 @@ describe('switching runs the right commands per host', () => {
     const world = fake(() => ran('{"error":"Not authorized","number":-1743}'))
     const result = await switchTo(world.io, { kind: 'iterm', tty: 'ttys002' })
     expect(result).toMatchObject({ ok: false })
-    if (result.ok) throw new Error('expected a failure')
+    if (result.ok) {
+      throw new Error('expected a failure')
+    }
     expect(result.message).toContain('System Settings')
   })
 
@@ -127,7 +126,9 @@ describe('switching runs the right commands per host', () => {
       if (argv[1] === 'list-clients') {
         return ran('/dev/ttys005\tother\t1790000000\t112\n')
       }
-      if (argv[0] === 'ps') return ran(PS)
+      if (argv[0] === 'ps') {
+        return ran(PS)
+      }
       return ran(
         argv[0] === 'osascript' ? '{"ok":true,"terminalId":"T-x"}' : '',
       )
@@ -147,8 +148,12 @@ describe('switching runs the right commands per host', () => {
 
   test('tmux leaves a client that already shows the session where it is', async () => {
     const world = fake(argv => {
-      if (argv[1] === 'list-clients') return ran(CLIENTS)
-      if (argv[0] === 'ps') return ran(PS)
+      if (argv[1] === 'list-clients') {
+        return ran(CLIENTS)
+      }
+      if (argv[0] === 'ps') {
+        return ran(PS)
+      }
       return ran(argv[0] === 'osascript' ? '{"ok":true}' : '')
     })
     await switchTo(world.io, { kind: 'tmux', paneId: '%7', session: 'main' })
@@ -185,7 +190,9 @@ describe('switching runs the right commands per host', () => {
     })
     expect(world.argvs).toEqual([['open', '-a', VSCODE]])
     expect(result).toMatchObject({ ok: true })
-    if (!result.ok) throw new Error('expected success')
+    if (!result.ok) {
+      throw new Error('expected success')
+    }
     expect(result.note).toContain('pick the terminal tab')
   })
 

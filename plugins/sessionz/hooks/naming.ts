@@ -7,14 +7,14 @@ const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const TYPED_ORIGINS: readonly string[] = ['composer', 'bridge']
 
 export interface NameCheck {
-  isTyped: boolean
-  prompt: string
-  sessionTitle: string | undefined
+  readonly isTyped: boolean
+  readonly prompt: string
+  readonly sessionTitle: string | undefined
 }
 
 export interface NameRequest {
-  system: string
-  prompt: string
+  readonly system: string
+  readonly prompt: string
 }
 
 /**

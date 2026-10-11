@@ -387,7 +387,9 @@ describe('hotkeys', () => {
     const later = assignKeys(keys, buildRows(worldOf({ agents: without })))
     expect(later['ghostty-named']).toBeUndefined()
     const base = agents()[0]
-    if (base === undefined) throw new Error('missing agent')
+    if (base === undefined) {
+      throw new Error('missing agent')
+    }
     const fresh = [...without, { ...base, sessionId: 'new-one', pid: 106 }]
     const again = assignKeys(later, buildRows(worldOf({ agents: fresh })))
     expect(again['new-one']).toBe('2')
@@ -419,7 +421,9 @@ describe('paths and row text', () => {
 
   test('both lines fit their width and the detail says what it waits for', () => {
     const row = rowFor(buildRows(worldOf()), 'ghostty-folder')
-    if (row === undefined) throw new Error('missing row')
+    if (row === undefined) {
+      throw new Error('missing row')
+    }
     const text = formatRow(row, { label: 50, detail: 40 })
     expect(text.label.length).toBeLessThanOrEqual(50)
     expect(text.label).toStartWith('● waiting  shop-api-3f')
@@ -429,7 +433,9 @@ describe('paths and row text', () => {
 
   test('a row that cannot switch says why', () => {
     const row = rowFor(buildRows(worldOf({ clients: [] })), 'tmux')
-    if (row === undefined) throw new Error('missing row')
+    if (row === undefined) {
+      throw new Error('missing row')
+    }
     expect(formatRow(row, { label: 60, detail: 60 }).detail).toBe(
       '~/projects/api · tmux: not attached',
     )

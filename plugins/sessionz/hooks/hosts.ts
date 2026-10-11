@@ -39,8 +39,8 @@ export const TMUX_CLIENTS_ARGV: readonly string[] = [
 const PERMISSION_ERRORS: readonly number[] = [-1743, -1744]
 
 export interface Failure {
-  error: string
-  number: number | null
+  readonly error: string
+  readonly number: number | null
 }
 
 export type Reply = { ok: true; fields: Fields } | ({ ok: false } & Failure)
@@ -73,7 +73,9 @@ export function scriptArgv(
 export function readReply(ran: ProcessRunResult): Reply {
   const data = parseJson(ran.stdout.trim())
   if (isRecord(data)) {
-    if (booleanOf(data, 'ok') === true) return { ok: true, fields: data }
+    if (booleanOf(data, 'ok') === true) {
+      return { ok: true, fields: data }
+    }
     const error = stringOf(data, 'error')
     if (error !== undefined) {
       return { ok: false, error, number: numberOf(data, 'number') ?? null }
@@ -81,9 +83,10 @@ export function readReply(ran: ProcessRunResult): Reply {
   }
   const stderr = ran.stderr.trim()
   const code = /\((-?\d+)\)$/.exec(stderr)?.[1]
+  const line = firstLine(stderr)
   return {
     ok: false,
-    error: firstLine(stderr) || `exited with ${String(ran.exitCode)}`,
+    error: line === '' ? `exited with ${String(ran.exitCode)}` : line,
     number: code === undefined ? null : Number(code),
   }
 }
@@ -97,10 +100,10 @@ export function failureText(app: string, failure: Failure): string {
 /** The outside world as switching needs it; register.tsx builds it from `$`. */
 export interface Io {
   /** Runs a program; a string says why it could not start or finish. */
-  run: (argv: readonly string[]) => Promise<ProcessRunResult | string>
-  sleep: (ms: number) => Promise<void>
+  readonly run: (argv: readonly string[]) => Promise<ProcessRunResult | string>
+  readonly sleep: (ms: number) => Promise<void>
   /** The plugin's folder. */
-  root: string
+  readonly root: string
 }
 
 async function viaScript(
@@ -117,7 +120,9 @@ async function viaScript(
     }
   }
   const reply = readReply(ran)
-  if (!reply.ok) return { ok: false, message: failureText(app, reply) }
+  if (!reply.ok) {
+    return { ok: false, message: failureText(app, reply) }
+  }
   return {
     ok: true,
     terminalId: stringOf(reply.fields, 'terminalId') ?? null,
@@ -130,13 +135,17 @@ async function tmux(
   argv: readonly string[],
 ): Promise<string | undefined> {
   const ran = await io.run(argv)
-  if (typeof ran === 'string') return ran
+  if (typeof ran === 'string') {
+    return ran
+  }
   return ran.exitCode === 0 ? undefined : `tmux: ${firstLine(ran.stderr)}`
 }
 
 async function focusOuter(io: Io, clientPid: number): Promise<SwitchResult> {
   const ps = await io.run(PS_ARGV)
-  if (typeof ps === 'string') return DONE
+  if (typeof ps === 'string') {
+    return DONE
+  }
   const outer = hostOf(clientPid, parsePs(ps.stdout))
   switch (outer.kind) {
     case 'ghostty': {
@@ -173,13 +182,17 @@ async function switchTmux(
     ['tmux', 'select-pane', '-t', paneId],
   ]) {
     const failed = await tmux(io, argv)
-    if (failed !== undefined) return { ok: false, message: failed }
+    if (failed !== undefined) {
+      return { ok: false, message: failed }
+    }
   }
   const listed = await io.run(TMUX_CLIENTS_ARGV)
   const clients =
     typeof listed === 'string' ? [] : parseTmuxClients(listed.stdout)
   const client = pickClient(clients, session)
-  if (client === undefined) return { ok: false, message: 'tmux: not attached' }
+  if (client === undefined) {
+    return { ok: false, message: 'tmux: not attached' }
+  }
   if (client.session !== session) {
     const failed = await tmux(io, [
       'tmux',
@@ -189,7 +202,9 @@ async function switchTmux(
       '-t',
       paneId,
     ])
-    if (failed !== undefined) return { ok: false, message: failed }
+    if (failed !== undefined) {
+      return { ok: false, message: failed }
+    }
   }
   return focusOuter(io, client.pid)
 }

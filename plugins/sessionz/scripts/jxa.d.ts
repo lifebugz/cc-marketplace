@@ -8,54 +8,54 @@
 
 interface ElementArray<T> {
   (): T[]
-  at(index: number): T
+  readonly at: (index: number) => T
 }
 
 interface GhosttyTerminal {
-  name(): string
+  readonly name: () => string
 }
 
 interface GhosttyApp {
   windows: {
-    id(): string[]
+    readonly id: () => string[]
     tabs: {
-      index(): number[][]
-      selected(): boolean[][]
+      readonly index: () => number[][]
+      readonly selected: () => boolean[][]
       terminals: {
-        id(): string[][][]
-        name(): string[][][]
-        workingDirectory(): string[][][]
+        readonly id: () => string[][][]
+        readonly name: () => string[][][]
+        readonly workingDirectory: () => string[][][]
       }
     }
   }
   terminals: {
-    id(): string[]
-    name(): string[]
-    byId(id: string): GhosttyTerminal
+    readonly id: () => string[]
+    readonly name: () => string[]
+    readonly byId: (id: string) => GhosttyTerminal
   }
-  focus(terminal: GhosttyTerminal): void
-  activate(): void
+  readonly focus: (terminal: GhosttyTerminal) => void
+  readonly activate: () => void
 }
 
 interface ITermSession {
-  select(): void
+  readonly select: () => void
 }
 
 interface ITermTab {
   sessions: ElementArray<ITermSession>
-  select(): void
+  readonly select: () => void
 }
 
 interface ITermWindow {
   tabs: ElementArray<ITermTab>
-  select(): void
+  readonly select: () => void
 }
 
 interface ITermApp {
   windows: ElementArray<ITermWindow> & {
-    tabs: { sessions: { tty(): string[][][] } }
+    tabs: { sessions: { tty: () => string[][][] } }
   }
-  activate(): void
+  readonly activate: () => void
 }
 
 interface TerminalTab {
@@ -68,8 +68,8 @@ interface TerminalWindow {
 }
 
 interface TerminalApp {
-  windows: ElementArray<TerminalWindow> & { tabs: { tty(): string[][] } }
-  activate(): void
+  windows: ElementArray<TerminalWindow> & { tabs: { tty: () => string[][] } }
+  readonly activate: () => void
 }
 
 declare function Application(name: 'Ghostty'): GhosttyApp
@@ -84,18 +84,18 @@ interface NSData {
 }
 
 interface NSString {
-  dataUsingEncoding(encoding: string): NSData
+  readonly dataUsingEncoding: (encoding: string) => NSData
 }
 
 interface NSFileHandle {
-  isNil(): boolean
-  writeData(data: NSData): void
+  readonly isNil: () => boolean
+  readonly writeData: (data: NSData) => void
 }
 
 interface ObjCBridge {
   (text: string): NSString
   NSFileHandle: {
-    fileHandleForWritingAtPath(path: string): NSFileHandle
+    readonly fileHandleForWritingAtPath: (path: string) => NSFileHandle
   }
   /** JXA hands every NSUInteger over as a string: this is "4". */
   NSUTF8StringEncoding: string
@@ -104,7 +104,7 @@ interface ObjCBridge {
 declare const $: ObjCBridge
 
 declare const ObjC: {
-  import(framework: string): void
+  readonly import: (framework: string) => void
 }
 
 /** osascript calls the script's run(argv) and prints what it returns. */

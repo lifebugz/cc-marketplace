@@ -11,7 +11,10 @@ const LATE_MARKER_SECONDS = 0.2
  *   | { error: string, number: number | null }} Reply
  */
 
-/** @param {string} tty */
+/**
+ * @param {string} tty
+ * @returns {string}
+ */
 function devicePath(tty) {
   return tty.startsWith('/dev/') ? tty : `/dev/${tty}`
 }
@@ -19,10 +22,13 @@ function devicePath(tty) {
 /**
  * @param {string} tty
  * @param {string} title
+ * @returns {void}
  */
 function writeTitle(tty, title) {
   const handle = $.NSFileHandle.fileHandleForWritingAtPath(devicePath(tty))
-  if (handle.isNil()) throw new Error(`cannot write to ${tty}`)
+  if (handle.isNil()) {
+    throw new Error(`cannot write to ${tty}`)
+  }
   handle.writeData(
     $(`\u001b]2;${title}\u0007`).dataUsingEncoding($.NSUTF8StringEncoding),
   )
@@ -147,7 +153,9 @@ function focusIterm(tty) {
   for (const [w, tabs] of windows.entries()) {
     for (const [t, sessions] of tabs.entries()) {
       const s = sessions.indexOf(device)
-      if (s < 0) continue
+      if (s < 0) {
+        continue
+      }
       const window = iterm.windows.at(w)
       const tab = window.tabs.at(t)
       tab.sessions.at(s).select()
@@ -170,7 +178,9 @@ function focusTerminalApp(tty) {
   const windows = terminal.windows.tabs.tty()
   for (const [w, tabs] of windows.entries()) {
     const t = tabs.indexOf(device)
-    if (t < 0) continue
+    if (t < 0) {
+      continue
+    }
     const window = terminal.windows.at(w)
     window.tabs.at(t).selected = true
     window.index = 1
@@ -185,7 +195,9 @@ function focusTerminalApp(tty) {
  * @returns {Reply}
  */
 function failure(error) {
-  if (!(error instanceof Error)) return { error: String(error), number: null }
+  if (!(error instanceof Error)) {
+    return { error: String(error), number: null }
+  }
   const number =
     'errorNumber' in error && typeof error.errorNumber === 'number'
       ? error.errorNumber

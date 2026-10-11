@@ -75,16 +75,27 @@ const named = (text: string): ModelCompleteResult => ({
   usage: USAGE,
 })
 
-function answer(world: World, argv: readonly string[]): ProcessRunResult {
-  if (argv[1] === 'agents') return ran(JSON.stringify(world.agents))
-  if (argv[0] === 'ps') return ran(PS)
+function answer(
+  world: { readonly agents: readonly unknown[]; readonly scriptReply: string },
+  argv: readonly string[],
+): ProcessRunResult {
+  if (argv[1] === 'agents') {
+    return ran(JSON.stringify(world.agents))
+  }
+  if (argv[0] === 'ps') {
+    return ran(PS)
+  }
   if (argv[0] === 'osascript') {
     return argv[4] === 'list-ghostty'
       ? ran(JSON.stringify({ ok: true, terminals: GHOSTTY }))
       : ran(world.scriptReply)
   }
-  if (argv[0] === 'tmux' && argv[1] === 'list-panes') return ran(PANES)
-  if (argv[0] === 'tmux' && argv[1] === 'list-clients') return ran(CLIENTS)
+  if (argv[0] === 'tmux' && argv[1] === 'list-panes') {
+    return ran(PANES)
+  }
+  if (argv[0] === 'tmux' && argv[1] === 'list-clients') {
+    return ran(CLIENTS)
+  }
   return ran('')
 }
 
@@ -134,7 +145,7 @@ function setup(on: On): World {
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
-  on('state.set', { plugin: PLUGIN, key: 'rows' }, (_$, e, next) => {
+  on('state.set', { plugin: PLUGIN, key: 'rows' }, async (_$, e, next) => {
     world.rowWrites += 1
     return next(e)
   })
@@ -149,7 +160,9 @@ function setup(on: On): World {
   })
   on('model.complete', async (_$, e) => {
     world.asked.push(e.prompt)
-    if (world.replyAfterMs > 0) await world.clock.sleep(world.replyAfterMs)
+    if (world.replyAfterMs > 0) {
+      await world.clock.sleep(world.replyAfterMs)
+    }
     return { value: world.reply }
   })
   on('classic.UserPromptSubmit', () => ({}))
@@ -178,7 +191,9 @@ async function openTabs($: Engine): Promise<void> {
   await $.command.run({ command: 'tabs', args: '', ...TYPED })
 }
 
-function agentRuns(world: World): number {
+function agentRuns(world: {
+  readonly argvs: readonly (readonly string[])[]
+}): number {
   return world.argvs.filter(argv => argv[1] === 'agents').length
 }
 
@@ -198,9 +213,9 @@ describe('the /tabs pane', () => {
           text: /^Sessions · 1 waiting · 1 busy/,
         }),
       ).toBeDefined()
-      const named = await pane.find({ key: 'go-ghostty-named' })
-      expect(named?.text).toMatch(/◐ busy +fix-login-timeout +Ghostty tab 2/)
-      expect(named?.props['hotkey']).toBe('2')
+      const namedRow = await pane.find({ key: 'go-ghostty-named' })
+      expect(namedRow?.text).toMatch(/◐ busy +fix-login-timeout +Ghostty tab 2/)
+      expect(namedRow?.props['hotkey']).toBe('2')
       expect(
         await pane.find({
           type: 'Text',

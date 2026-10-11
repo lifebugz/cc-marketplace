@@ -15,7 +15,7 @@ import {
   TYPED_ORIGINS,
   wantsName,
 } from './naming'
-import { emptyCaches, readWorld, type Caches, type WorldIo } from './refresh'
+import { Caches, readWorld, type WorldIo } from './refresh'
 import {
   assignKeys,
   baseName,
@@ -27,7 +27,6 @@ import {
 } from './sessions'
 
 type SwitchRow = Extract<Row, { kind: 'switch' }>
-type PromptSubmit = ClassicEventOf['classic.UserPromptSubmit']
 
 const PANE = 'sessionz'
 const REFRESH_MS = 3000
@@ -55,8 +54,8 @@ interface Live {
   shownRows: string
   shownKeys: string
   shownError: string | null | undefined
-  caches: Caches
-  naming: Map<string, Promise<string | undefined>>
+  readonly caches: Caches
+  readonly naming: Map<string, Promise<string | undefined>>
   /** The texts of the last prompts the person typed, newest last. */
   typed: string[]
 }
@@ -69,7 +68,7 @@ const live: Live = {
   shownRows: '',
   shownKeys: '',
   shownError: undefined,
-  caches: emptyCaches(),
+  caches: new Caches(),
   naming: new Map(),
   typed: [],
 }
@@ -82,7 +81,7 @@ function debug($: EngineInterface, text: string): void {
 }
 
 function ioOf($: EngineInterface, timeoutMs: number): Io {
-  return {
+  const io: Io = {
     run: async argv => {
       try {
         return await $.process.run(argv, { timeoutMs })
@@ -90,20 +89,23 @@ function ioOf($: EngineInterface, timeoutMs: number): Io {
         return `${argv[0] ?? ''} did not run: ${String(error)}`
       }
     },
-    sleep: ms => $.clock.sleep(ms),
+    sleep: async ms => $.clock.sleep(ms),
     root: $.plugin.root,
   }
+  return io
 }
 
 async function worldIoOf($: EngineInterface): Promise<WorldIo> {
   const home = (await $.env.get('HOME')) ?? ''
-  return {
+  const io: WorldIo = {
     ...ioOf($, RUN_TIMEOUT_MS),
     home,
     selfId: await $.session.id(),
-    canSwitch: () => $.fs.exists('/usr/bin/osascript'),
+    canSwitch: async () => $.fs.exists('/usr/bin/osascript'),
     extensions: async () => {
-      if (home === '') return []
+      if (home === '') {
+        return []
+      }
       try {
         const entries = await $.fs.list(`${home}/.vscode/extensions`)
         return entries.map(entry => entry.name)
@@ -115,19 +117,24 @@ async function worldIoOf($: EngineInterface): Promise<WorldIo> {
       debug($, text)
     },
   }
+  return io
 }
 
 async function showError(
   $: EngineInterface,
   error: string | null,
 ): Promise<void> {
-  if (error === live.shownError) return
+  if (error === live.shownError) {
+    return
+  }
   live.shownError = error
   await update($, errorState, () => error)
 }
 
 async function refresh($: EngineInterface): Promise<void> {
-  if (live.isRefreshing) return
+  if (live.isRefreshing) {
+    return
+  }
   live.isRefreshing = true
   try {
     const world = await readWorld(await worldIoOf($), live.caches)
@@ -158,7 +165,7 @@ async function refresh($: EngineInterface): Promise<void> {
   }
 }
 
-function startPolling($: EngineInterface): Promise<void> {
+async function startPolling($: EngineInterface): Promise<void> {
   live.timer ??= $.clock.every(REFRESH_MS, () => {
     void refresh($)
   })
@@ -171,7 +178,9 @@ function stopPolling(): void {
 }
 
 async function switchRow($: EngineInterface, row: SwitchRow): Promise<void> {
-  if (live.isSwitching) return
+  if (live.isSwitching) {
+    return
+  }
   live.isSwitching = true
   try {
     const result = await switchTo(ioOf($, SWITCH_TIMEOUT_MS), row.target)
@@ -179,7 +188,9 @@ async function switchRow($: EngineInterface, row: SwitchRow): Promise<void> {
       $.ui.toast(result.message, { timeoutMs: ERROR_TOAST_MS })
       return
     }
-    if (result.note !== null) $.ui.toast(result.note)
+    if (result.note !== null) {
+      $.ui.toast(result.note)
+    }
     if (row.target.kind === 'ghostty-tty' && result.terminalId !== null) {
       live.caches.remembered.set(row.target.tty, result.terminalId)
       await refresh($)
@@ -233,7 +244,9 @@ async function askName(
     debug($, `the Haiku call was refused: ${String(error)}`)
   }
   live.naming.delete(sessionId)
-  if (name !== undefined) await $.store.set(pendingKey(sessionId), name)
+  if (name !== undefined) {
+    await $.store.set(pendingKey(sessionId), name)
+  }
   return name
 }
 
@@ -248,7 +261,12 @@ async function markNamed($: EngineInterface, sessionId: string): Promise<void> {
  */
 async function nameFor(
   $: EngineInterface,
-  e: PromptSubmit,
+  e: Readonly<
+    Pick<
+      ClassicEventOf['classic.UserPromptSubmit'],
+      'cwd' | 'prompt' | 'session_id' | 'session_title' | 'source'
+    >
+  >,
 ): Promise<string | undefined> {
   const isTyped = isTypedPrompt(e.source, e.prompt, live.typed)
   const check = { isTyped, prompt: e.prompt, sessionTitle: e.session_title }
@@ -259,7 +277,9 @@ async function nameFor(
     return undefined
   }
   const sessionId = e.session_id
-  if ((await $.store.get(namedKey(sessionId))) === true) return undefined
+  if ((await $.store.get(namedKey(sessionId))) === true) {
+    return undefined
+  }
   const pending = await $.store.get(pendingKey(sessionId))
   if (typeof pending === 'string') {
     await markNamed($, sessionId)
@@ -270,7 +290,9 @@ async function nameFor(
     askName($, sessionId, e.prompt, baseName(e.cwd))
   live.naming.set(sessionId, asked)
   const name = await within($, asked, NAME_WAIT_MS)
-  if (name === undefined) return undefined
+  if (name === undefined) {
+    return undefined
+  }
   await markNamed($, sessionId)
   return name
 }
@@ -289,7 +311,9 @@ export const register: Register = (on, options) => {
       description: 'Show every Claude Code session and switch to its tab',
     })
     const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === PANE)) void startPolling($)
+    if (panes.some(pane => pane.id === PANE)) {
+      void startPolling($)
+    }
     return next(e)
   })
 
@@ -316,26 +340,30 @@ export const register: Register = (on, options) => {
     live.shownKeys = JSON.stringify({})
     await update($, keysState, () => ({}))
     return closed
-  }).catch((_$, e, next) => next(e))
+  }).catch(async (_$, e, next) => next(e))
 
   on('prompt.submit', async (_$, e, next) => {
     const isTyped = TYPED_ORIGINS.includes(e.origin.kind)
     // The UserPromptSubmit hooks run inside next(e), so the text is
     // remembered before it; a rewrite from a hook beneath is added after.
-    if (isTyped) remember(e.text)
+    if (isTyped) {
+      remember(e.text)
+    }
     const submitted = await next(e)
     if (isTyped && submitted.drop === undefined && submitted.text !== e.text) {
       remember(submitted.text)
     }
     return submitted
-  }).catch((_$, e, next) => next(e))
+  }).catch(async (_$, e, next) => next(e))
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
     const result = await next(e)
-    if (!live.autoName || result.sessionTitle !== undefined) return result
+    if (!live.autoName || result.sessionTitle !== undefined) {
+      return result
+    }
     const name = await nameFor($, e)
     return name === undefined ? result : { ...result, sessionTitle: name }
-  }).catch((_$, e, next) => next(e))
+  }).catch(async (_$, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const [rows, keys, error] = await Promise.all([

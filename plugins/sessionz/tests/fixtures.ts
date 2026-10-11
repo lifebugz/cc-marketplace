@@ -46,14 +46,14 @@ export const PS = `
 `
 
 interface AgentFixture {
-  sessionId: string
-  pid?: number
-  name?: string
-  cwd: string
-  status?: string
-  waitingFor?: string
-  kind?: string
-  state?: string
+  readonly sessionId: string
+  readonly pid?: number
+  readonly name?: string
+  readonly cwd: string
+  readonly status?: string
+  readonly waitingFor?: string
+  readonly kind?: string
+  readonly state?: string
 }
 
 export function agent(fixture: AgentFixture): Record<string, unknown> {

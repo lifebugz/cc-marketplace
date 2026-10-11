@@ -166,37 +166,22 @@ the Automation denial toast), Terminal.app 2.15, and the Claude Code panel in
 VS Code 1.141.0. A session in VS Code's integrated terminal is covered by tests
 only.
 
+The mod uses the TypeScript, ESLint and Prettier setup at the repository root
+(see [`plugins/README.md`](../README.md#develop-a-mod)). From the root:
+
 ```shell
 bun install
-claude --plugin-dir plugins/sessionz   # once, to lay .claude-plugin/types/
-bun run check
+bun run check                    # types, tsc, ESLint, Prettier, tests, validate
+bun run lint plugins/sessionz    # ESLint on this mod only
+claude plugin test plugins/sessionz
 ```
-
-`bun run check` runs, and must pass with zero warnings:
-
-| Script         | What it runs                                                                        |
-| :------------- | :---------------------------------------------------------------------------------- |
-| `typecheck`    | TypeScript (latest, 7.x) on the mod, and on `scripts/` with its own `tsconfig.json` |
-| `lint`         | ESLint with typescript-eslint's `strictTypeChecked` and `stylisticTypeChecked`      |
-| `format:check` | Prettier, from the repository root so it skips the engine's `.claude-plugin/types/` |
-| `test`         | `claude plugin test .`                                                              |
-| `validate`     | `claude plugin validate .`                                                          |
 
 Notes:
 
-- The `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude
-  Code writes when it loads the mod from a folder (`--plugin-dir`). Load the mod
-  once before the first `typecheck`.
-- `typescript` is pinned to `~6.0` in `package.json` because typescript-eslint
-  supports TypeScript `>=4.8.4 <6.1.0`. Type-checking itself runs the latest
-  TypeScript through `bunx`.
 - `scripts/terminals.js` is JavaScript for Automation (JXA), run by `osascript`.
   It has its own `tsconfig.json` and hand-written `jxa.d.ts`, so its globals
-  (`Application`, `$`, `delay`) never leak into the hooks.
-- `hooks/register.tsx` and `tests/` turn off one sub-check of
-  `no-misused-promises` (`checksVoidReturn.arguments`): checking each argument
-  of an `on(...)` call against the engine's overload set takes over 5 minutes
-  per file. Every other file keeps it.
+  (`Application`, `$`, `delay`) never leak into the hooks. `osascript` calls
+  the `run` function the script sets on `globalThis`.
 - A hooks module may pass `$` only to functions in the same file, so
   `hosts.ts` and `refresh.ts` take a small `Io` object that `register.tsx`
   builds from `$`.
