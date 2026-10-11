@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import prettier from 'eslint-config-prettier'
 import { defineConfig } from 'eslint/config'
+import jsdoc from 'eslint-plugin-jsdoc'
 import tseslint from 'typescript-eslint'
 
 // Types the engine hands a mod: mods cannot make them readonly.
@@ -76,6 +77,14 @@ export default defineConfig(
           'ts-nocheck': true,
         },
       ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: `:matches(TSTypeAliasDeclaration, TSInterfaceDeclaration, ClassDeclaration, TSEnumDeclaration)[id.name=/^(${engineTypes.join('|')})$/]:not(TSModuleDeclaration[id.value='claude-code'] *)`,
+          message:
+            'prefer-readonly-parameter-types allows this name as an engine type, whatever declares it. Rename the type.',
+        },
+      ],
       'no-shadow': 'off',
       '@typescript-eslint/no-shadow': 'error',
       'default-param-last': 'off',
@@ -112,6 +121,35 @@ export default defineConfig(
         ObjC: 'readonly',
         console: 'readonly',
       },
+    },
+    plugins: { jsdoc },
+    rules: {
+      // A .js file cannot carry a `: Type` annotation; checkJs reads JSDoc instead.
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      'jsdoc/require-jsdoc': [
+        'error',
+        {
+          require: {
+            FunctionDeclaration: true,
+            FunctionExpression: true,
+            MethodDefinition: true,
+          },
+          contexts: ['VariableDeclarator > ArrowFunctionExpression'],
+        },
+      ],
+      'jsdoc/require-param': 'error',
+      'jsdoc/require-param-name': 'error',
+      'jsdoc/require-param-type': 'error',
+      'jsdoc/require-returns': ['error', { forceRequireReturn: true }],
+      'jsdoc/require-returns-type': 'error',
+      'jsdoc/require-returns-check': 'error',
+      'jsdoc/check-param-names': 'error',
+      'jsdoc/check-tag-names': 'error',
+      'jsdoc/valid-types': 'error',
+      'jsdoc/no-defaults': 'error',
+      'jsdoc/empty-tags': 'error',
+      'jsdoc/reject-any-type': 'error',
+      'jsdoc/reject-function-type': 'error',
     },
   },
   prettier,
