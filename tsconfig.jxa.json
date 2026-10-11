@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.strict.json",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": [],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "include": ["${configDir}/*.js", "${configDir}/*.d.ts"]
+}

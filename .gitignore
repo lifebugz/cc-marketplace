@@ -3,6 +3,7 @@ CLAUDE.local.md
 
 # Claude Code local-scope settings (personal machine state)
 .claude/settings.local.json
+.claude/worktrees/
 
 # macOS
 .DS_Store
@@ -12,6 +13,9 @@ CLAUDE.local.md
 .idea/
 *.swp
 *~
+
+# Types the Claude Code engine writes beside a mod when it loads it
+plugins/*/.claude-plugin/types/
 
 # Node - for plugins that bundle JS tooling or MCP servers
 node_modules/
@@ -23,3 +27,9 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Plugin eval results, written by each `claude plugin eval` run
+plugins/*/evals/results/
+# A resumed case writes its whole session beside history.jsonl, account data included
+plugins/*/evals/*/*.jsonl
+!plugins/*/evals/*/history.jsonl
