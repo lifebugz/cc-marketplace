@@ -3,6 +3,7 @@ CLAUDE.local.md
 
 # Claude Code local-scope settings (personal machine state)
 .claude/settings.local.json
+.claude/worktrees/
 
 # macOS
 .DS_Store
@@ -13,7 +14,7 @@ CLAUDE.local.md
 *.swp
 *~
 
-# Mod type declarations Claude Code rewrites on every load, for one build
+# Types the Claude Code engine writes beside a mod when it loads it
 plugins/*/.claude-plugin/types/
 
 # Node - for plugins that bundle JS tooling or MCP servers
