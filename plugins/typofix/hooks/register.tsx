@@ -16,6 +16,7 @@ import {
   fixLetter,
   focusShortcut,
   hunspellDictionary,
+  isDictionaryLanguage,
   isDraft,
   listSignature,
   maskCode,
@@ -29,6 +30,7 @@ import {
   toIssue,
   tokenAt,
   typeaheadRows,
+  type Checked,
   type Span,
   type Splice,
 } from './text'
@@ -41,7 +43,7 @@ interface Backend {
   readonly name: string
   readonly argv: (root: string, language: string) => string[]
   readonly input: (text: string) => string
-  readonly parse: (stdout: string, text: string) => Span[] | undefined
+  readonly parse: (stdout: string, text: string) => Checked | undefined
 }
 
 interface Live {
@@ -66,6 +68,7 @@ interface Live {
 
 const CHECK_DELAY_MS = 400
 const SPELL_TIMEOUT_MS = 5000
+const TIMER_SLACK_MS = 500
 const TYPEAHEAD_WAIT_MS = 2000
 const TYPEAHEAD_POLL_MS = 100
 const REPHRASE_TIMEOUT_MS = 20000
@@ -74,7 +77,8 @@ const IGNORED_KEY = 'ignored'
 const REWRITE_LABELS = ['fixed', 'natural', 'short']
 const IDLE: Rephrase = { status: 'idle' }
 const NO_BACKEND =
-  'typofix: no spell checker found (Linux: install enchant-2 or hunspell). /rephrase still works.'
+  'no spell checker found (Linux: install enchant-2 or hunspell). /rephrase still works.'
+const SCRIPT_WARNING = 'typofix:'
 
 const issues = atom({ plugin: 'typofix', key: 'issues' } as const, [])
 const isHidden = atom({ plugin: 'typofix', key: 'isHidden' } as const, false)
@@ -97,11 +101,15 @@ const hunspellArgv = (language: string): string[] => [
   ...withLanguage(language),
 ]
 
+const parseIspellChecked = (stdout: string, text: string): Checked => ({
+  spans: parseIspell(stdout, text),
+})
+
 const extraBackend = (dictionary: string): Backend => ({
   name: 'hunspell',
   argv: () => hunspellArgv(dictionary),
   input: toIspellInput,
-  parse: parseIspell,
+  parse: parseIspellChecked,
 })
 
 function candidateBackends(): readonly Backend[] {
@@ -128,13 +136,13 @@ const BACKENDS: readonly Backend[] = [
     name: 'enchant-2',
     argv: (_, language) => ['enchant-2', '-a', ...withLanguage(language)],
     input: toIspellInput,
-    parse: parseIspell,
+    parse: parseIspellChecked,
   },
   {
     name: 'hunspell',
     argv: (_, language) => hunspellArgv(language),
     input: toIspellInput,
-    parse: parseIspell,
+    parse: parseIspellChecked,
   },
 ]
 
@@ -166,6 +174,11 @@ function forgetDraft(): void {
   live.spans = []
   live.hasDraft = false
   live.hiddenFor = undefined
+}
+
+// Claude Code can raise a submit at a turn's end, while the box holds the next draft.
+function isLateSubmit(text: string): boolean {
+  return live.draftText !== '' && live.draftText !== text
 }
 
 async function resetState($: EngineInterface): Promise<void> {
@@ -240,13 +253,19 @@ async function onDraftChange(
   const before = live.spans
   live.draftText = text
   live.spans = text.startsWith('/') ? [] : shiftSpans(before, edit, text)
+  scheduleCheck($, text)
   if (live.spans.length !== before.length) {
     await writeIssues($, live.spans)
   }
   await setDraft($, isDraft(text))
   await setChecked($, false)
   await settleRephrase($)
-  scheduleCheck($, text)
+}
+
+async function syncDraft($: EngineInterface, text: string): Promise<void> {
+  if (text !== live.draftText) {
+    await onDraftChange($, diffSplice(live.draftText, text), text)
+  }
 }
 
 async function settleRephrase($: EngineInterface): Promise<void> {
@@ -332,14 +351,14 @@ async function showIssues(
   $: EngineInterface,
   spans: readonly Span[],
 ): Promise<void> {
-  if (
+  const isNew =
     live.hiddenFor !== undefined &&
     listSignature(spans.map(toIssue)) !== live.hiddenFor
-  ) {
+  await writeIssues($, spans)
+  if (isNew) {
     live.hiddenFor = undefined
     await update($, isHidden, () => false)
   }
-  await writeIssues($, spans)
 }
 
 async function checkedSpans(
@@ -380,7 +399,9 @@ async function checkText(
     }
     live.backend = candidate
     const spans =
-      candidate.name === 'osascript' ? await withExtra($, found, masked) : found
+      candidate.name === 'osascript'
+        ? await withExtra($, found, masked)
+        : found?.spans
     return spans?.filter(
       span => text.slice(span.start, span.end) === span.original,
     )
@@ -394,11 +415,22 @@ async function checkText(
 
 async function withExtra(
   $: EngineInterface,
-  found: readonly Span[] | undefined,
+  found: Checked | undefined,
   masked: string,
 ): Promise<readonly Span[] | undefined> {
   if (found === undefined || live.hunspell === undefined) {
-    return found
+    return found?.spans
+  }
+  if (!isDictionaryLanguage(live.hunspell, live.language, found.guess)) {
+    const guess =
+      found.guess === undefined
+        ? ''
+        : ` (macOS reads ${found.guess.language}, ${String(found.guess.confidence)})`
+    $.ui.log(
+      `typofix: hunspell -d ${live.hunspell} skips a draft in another language${guess}`,
+      { to: 'debug' },
+    )
+    return found.spans
   }
   const extra = await runBackend($, extraBackend(live.hunspell), masked)
   if (extra === 'unavailable' || extra === undefined) {
@@ -407,16 +439,18 @@ async function withExtra(
       { to: 'debug' },
     )
     live.hunspell = undefined
-    return found
+    return found.spans
   }
-  return mergeSpans(found, extra)
+  return mergeSpans(found.spans, extra.spans)
 }
 
 async function runBackend(
   $: EngineInterface,
   backend: Backend,
   masked: string,
-): Promise<Span[] | 'unavailable' | undefined> {
+  isRetry = false,
+): Promise<Checked | 'unavailable' | undefined> {
+  const startedAt = await $.clock.now()
   let ran: ProcessRunResult
   try {
     ran = await $.process.run(backend.argv($.plugin.root, live.language), {
@@ -424,10 +458,25 @@ async function runBackend(
       timeoutMs: SPELL_TIMEOUT_MS,
     })
   } catch (error) {
-    $.ui.log(`typofix: ${backend.name} did not run: ${String(error)}`, {
-      to: 'debug',
-    })
-    return live.backend === undefined ? 'unavailable' : undefined
+    // $.process.run also rejects at the timeout, which proves the program exists.
+    const hasStarted =
+      (await $.clock.now()) - startedAt >= SPELL_TIMEOUT_MS - TIMER_SLACK_MS
+    const willRetry = !hasStarted && !isRetry
+    $.ui.log(
+      `typofix: ${backend.name} did not ${hasStarted ? 'finish in time' : 'run'}${willRetry ? ' (trying once more)' : ''}: ${String(error)}`,
+      { to: 'debug' },
+    )
+    if (hasStarted) {
+      return undefined
+    }
+    // Claude Code also aborts a run when it cancels the hook call that set the
+    // check's timer (Enter cancels a waiting prompt.autocomplete), so a run
+    // refused before its timeout is tried once more: a program that cannot
+    // start is refused twice.
+    if (willRetry) {
+      return runBackend($, backend, masked, true)
+    }
+    return live.backend === backend ? undefined : 'unavailable'
   }
 
   if (ran.exitCode !== 0 && ran.stdout.trim() === '') {
@@ -442,19 +491,19 @@ async function runBackend(
 
   const warning = ran.stderr
     .split('\n')
-    .find(line => line.startsWith('typofix:'))
+    .find(line => line.startsWith(SCRIPT_WARNING))
   if (warning !== undefined && !live.hasWarned) {
     live.hasWarned = true
-    $.ui.toast(warning, { timeoutMs: 8000 })
+    $.ui.toast(warning.slice(SCRIPT_WARNING.length).trim(), { timeoutMs: 8000 })
   }
 
-  const spans = backend.parse(ran.stdout, masked)
-  if (spans === undefined) {
+  const checked = backend.parse(ran.stdout, masked)
+  if (checked === undefined) {
     $.ui.log(`typofix: could not read what ${backend.name} printed`, {
       to: 'debug',
     })
   }
-  return spans
+  return checked
 }
 
 async function readIgnored($: EngineInterface): Promise<Set<string>> {
@@ -477,38 +526,60 @@ async function runRephrase(
   live.rephraseSource = source
   await setRephrase($, { status: 'loading' })
 
-  const { system, prompt } = buildRewriteRequest(source)
-  const startedAt = await $.clock.now()
-  const reply = await $.model.complete(
-    {
-      model: 'haiku',
-      system,
-      prompt,
-      effort: 'low',
-      maxTokens: Math.min(4000, 300 + 2 * source.length),
-      timeoutMs: REPHRASE_TIMEOUT_MS,
-    },
-    { signal: stop.signal },
-  )
-  const elapsedMs = (await $.clock.now()) - startedAt
-  $.ui.log(
-    `typofix: haiku took ${String(elapsedMs)} ms, ${String(reply.usage.input_tokens)} tokens in, ${String(reply.usage.output_tokens)} out`,
-    { to: 'debug' },
-  )
-
+  const reply = await askHaiku($, source, stop.signal)
   if (live.rephraseStop !== stop) {
     return { reason: 'cancelled' }
   }
   live.rephraseStop = undefined
 
-  const rewrites = reply.isAnswered ? parseRewriteReply(reply.text) : undefined
+  const rewrites =
+    typeof reply !== 'string' && reply.isAnswered
+      ? parseRewriteReply(reply.text)
+      : undefined
   if (rewrites === undefined) {
-    const reason = failureOf(reply)
+    const reason = typeof reply === 'string' ? reply : failureOf(reply)
     await setRephrase($, { status: 'failed', reason })
     return { reason }
   }
   await setRephrase($, { status: 'ready', rewrites })
   return { rewrites }
+}
+
+async function askHaiku(
+  $: EngineInterface,
+  source: string,
+  signal: AbortSignal,
+): Promise<ModelCompleteResult | string> {
+  const { system, prompt } = buildRewriteRequest(source)
+  const startedAt = await $.clock.now()
+  let reply: ModelCompleteResult
+  try {
+    reply = await $.model.complete(
+      {
+        model: 'haiku',
+        system,
+        prompt,
+        effort: 'low',
+        maxTokens: Math.min(4000, 300 + 2 * source.length),
+        timeoutMs: REPHRASE_TIMEOUT_MS,
+      },
+      { signal },
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // Claude Code words a refused call as `<plugin>: $.model.complete: <reason>`.
+    const enginePrefix = `${$.plugin.name}: $.model.complete: `
+    const reason = message.startsWith(enginePrefix)
+      ? message.slice(enginePrefix.length)
+      : message
+    return `Haiku could not run (${reason})`
+  }
+  const elapsedMs = (await $.clock.now()) - startedAt
+  $.ui.log(
+    `typofix: haiku took ${String(elapsedMs)} ms, ${String(reply.usage.input_tokens)} tokens in, ${String(reply.usage.output_tokens)} out`,
+    { to: 'debug' },
+  )
+  return reply
 }
 
 function failureOf(reply: ModelCompleteResult): string {
@@ -537,15 +608,17 @@ async function pickChoice(
   id: string,
   choice: string,
 ): Promise<void> {
+  const { text } = await $.prompt.read()
+  await syncDraft($, text)
   const target = live.spans.find(span => span.id === id)
   if (target === undefined) {
+    $.ui.toast('that word changed; the next check looks again')
     return
   }
-  const { text } = await $.prompt.read()
   const rest = live.spans.filter(span => span.id !== id)
   const applied = applyChoice(text, target, choice)
   if (applied === undefined) {
-    $.ui.toast('typofix: that word changed; the next check looks again')
+    $.ui.toast('that word changed; the next check looks again')
     await writeIssues($, rest)
     return
   }
@@ -557,7 +630,10 @@ async function pickChoice(
     decorations: decorationsFor(shifted),
   })
   if (!filled.isFilled) {
-    $.ui.toast('typofix: the prompt box did not take the fix')
+    $.ui.toast('the prompt box did not take the fix')
+    return
+  }
+  if (live.draftText !== text) {
     return
   }
   live.draftText = applied.text
@@ -571,14 +647,18 @@ async function pickChoice(
 async function pickRewrite($: EngineInterface, rewrite: string): Promise<void> {
   const { text } = await $.prompt.read()
   if (text !== live.rephraseSource && text.trim() !== '') {
-    $.ui.toast('typofix: the draft changed; press r again')
+    $.ui.toast('the draft changed; press r again')
     await setRephrase($, IDLE)
     return
   }
 
+  const before = live.draftText
   const filled = await $.prompt.fill({ text: rewrite, mode: 'replace' })
   if (!filled.isFilled) {
-    $.ui.toast('typofix: the prompt box did not take the rewrite')
+    $.ui.toast('the prompt box did not take the rewrite')
+    return
+  }
+  if (live.draftText !== before) {
     return
   }
   live.draftText = rewrite
@@ -608,13 +688,25 @@ async function ignoreWord($: EngineInterface, word: string): Promise<void> {
   const ignored = await readIgnored($)
   ignored.add(lower)
   await $.store.set(IGNORED_KEY, [...ignored])
-  await writeIssues(
-    $,
-    live.spans.filter(
-      span =>
-        !(span.kind === 'spelling' && span.original.toLowerCase() === lower),
-    ),
+  const { text } = await $.prompt.read()
+  await syncDraft($, text)
+  const rest = live.spans.filter(
+    span =>
+      !(span.kind === 'spelling' && span.original.toLowerCase() === lower),
   )
+  if (rest.length === live.spans.length) {
+    return
+  }
+  await writeIssues($, rest)
+  const offered = offeredAt(text, text.length)
+  const filled = await $.prompt.fill({
+    text,
+    mode: 'replace',
+    decorations: decorationsFor(rest, offered),
+  })
+  if (filled.isFilled) {
+    await setOffering($, offered !== undefined)
+  }
 }
 
 async function hideIssues($: EngineInterface): Promise<void> {
@@ -643,6 +735,7 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.edit', async ($, e, next) => {
+    await syncDraft($, e.text)
     const edited = await next(e)
     if (edited.text !== e.text) {
       await onDraftChange($, e, edited.text)
@@ -663,9 +756,7 @@ export const register: Register = (on, options) => {
     if (e.text.startsWith('/')) {
       return offered
     }
-    if (e.text !== live.draftText) {
-      await onDraftChange($, diffSplice(live.draftText, e.text), e.text)
-    }
+    await syncDraft($, e.text)
     const spans = await checkedSpans($, e.text, next.signal)
     const fixes = spans === undefined ? [] : typeaheadRows(spans, e)
     if (fixes.length === 0) {
@@ -675,16 +766,29 @@ export const register: Register = (on, options) => {
     return { suggestions: [...offered.suggestions, ...fixes] }
   })
 
+  on('prompt.change', async ($, e, next) => {
+    if (e.origin.kind !== 'plugin' || e.origin.name !== $.plugin.name) {
+      await syncDraft($, e.text)
+    }
+    return next(e)
+  })
+
   on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind !== 'composer' || isLateSubmit(e.text)) {
+      return next(e)
+    }
+    const isDraftSent = live.draftText === e.text
     forgetDraft()
-    const submitted = await next(e)
-    await settleRephrase($)
-    await update($, issues, () => [])
+    // A late submit while the box is empty must not close /rephrase's rewrites.
+    if (isDraftSent) {
+      await settleRephrase($)
+    }
+    await update($, issues, () => live.spans.map(toIssue))
     await update($, isHidden, () => false)
-    await update($, hasDraft, () => false)
+    await update($, hasDraft, () => live.hasDraft)
     await setChecked($, false)
     await setOffering($, false)
-    return submitted
+    return next(e)
   })
 
   on('command.run', { command: 'rephrase' }, async ($, e) => {
@@ -694,7 +798,7 @@ export const register: Register = (on, options) => {
     }
     const outcome = await runRephrase($, source, 'command')
     if ('reason' in outcome) {
-      return { text: `typofix: ${outcome.reason}` }
+      return { text: outcome.reason }
     }
     return {
       text: outcome.rewrites

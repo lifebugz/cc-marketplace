@@ -1,10 +1,12 @@
 ObjC.import('AppKit')
+ObjC.import('NaturalLanguage')
 
 const SPELLING = 2
 const GRAMMAR = 4
 const MAX_CHOICES = 3
 
 /** @typedef {{ start: number, end: number, kind: 'spelling' | 'grammar', choices: string[] }} Issue */
+/** @typedef {{ language?: string, confidence?: number }} Guess */
 
 /** @returns {NSString} */
 function readStdin() {
@@ -40,6 +42,26 @@ function useLanguage(checker, language) {
   )
   checker.automaticallyIdentifiesLanguages = true
   return $()
+}
+
+/**
+ * @param {NSString} text
+ * @returns {Guess}
+ */
+function guessLanguage(text) {
+  const recognizer = $.NLLanguageRecognizer.alloc.init
+  recognizer.processString(text)
+  const hypotheses = ObjC.deepUnwrap(
+    recognizer.languageHypothesesWithMaximum(1),
+  )
+  if (typeof hypotheses !== 'object' || hypotheses === null) {
+    return {}
+  }
+  const [top] = Object.entries(hypotheses)
+  if (top === undefined || typeof top[1] !== 'number') {
+    return {}
+  }
+  return { language: top[0], confidence: top[1] }
 }
 
 /**
@@ -128,5 +150,5 @@ globalThis.run = function (argv) {
       )
     issues.push({ start, end, kind: 'spelling', choices: strings(guesses) })
   }
-  return JSON.stringify(issues)
+  return JSON.stringify({ ...guessLanguage(text), issues })
 }

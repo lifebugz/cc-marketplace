@@ -59,9 +59,17 @@ interface NSSpellChecker {
   ) => NSArray<NSString>
 }
 
+interface NLLanguageRecognizer {
+  readonly processString: (text: NSString) => void
+  readonly languageHypothesesWithMaximum: (maximum: number) => NSObject
+}
+
 interface ObjCBridge {
   (text?: string): NSString
   readonly NSSpellChecker: { readonly sharedSpellChecker: NSSpellChecker }
+  readonly NLLanguageRecognizer: {
+    readonly alloc: { readonly init: NLLanguageRecognizer }
+  }
   readonly NSFileHandle: {
     readonly fileHandleWithStandardInput: {
       readonly readDataToEndOfFile: NSData

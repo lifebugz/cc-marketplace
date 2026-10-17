@@ -18,6 +18,16 @@ export interface Splice {
   readonly inputText: string
 }
 
+export interface LanguageGuess {
+  readonly language: string
+  readonly confidence: number
+}
+
+export interface Checked {
+  readonly spans: readonly Span[]
+  readonly guess?: LanguageGuess
+}
+
 export interface RewriteRequest {
   readonly system: string
   readonly prompt: string
@@ -29,6 +39,7 @@ const DEFAULT_FOCUS_KEY = 'ctrl+x tab'
 const FOCUS_ACTION = 'abovePrompt:focus'
 const FOCUS_CONTEXTS = new Set(['Chat', 'Global'])
 const FIX_LETTERS = 'abcdefghjklmnopqtuvwyz'
+const SURE_GUESS = 0.9
 
 const LATIN_WORD = /^[\p{Script=Latin}\p{M}'’]+$/u
 const DICTIONARY_NAME = /^[A-Za-z0-9_-]+$/
@@ -46,6 +57,8 @@ const EDGE_PUNCTUATION = /^([^\p{L}\p{N}_@~]*)(.*?)[^\p{L}\p{N}_@~]*$/u
 const CODE_LIKE = /[_./@\d]|\p{Ll}\p{Lu}/u
 const PLURAL_CAPS = /^\p{Lu}{2,}s$/u
 const WORD_CHAR = /[\p{L}\p{N}\p{M}_'’]/u
+const SPACE = /\s/
+const LANGUAGE_SUBTAG = /[-_]/
 
 const ISPELL_MISS = /^& (\S+) \d+ (\d+): (.*)$/
 const ISPELL_NONE = /^# (\S+) (\d+)$/
@@ -98,21 +111,43 @@ function isCodeLike(word: string): boolean {
   return isAllCaps || PLURAL_CAPS.test(word) || CODE_LIKE.test(word)
 }
 
-export function parseMacResult(json: string, text: string): Span[] | undefined {
+export function parseMacResult(
+  json: string,
+  text: string,
+): Checked | undefined {
   let data: unknown
   try {
     data = JSON.parse(json)
   } catch {
     return undefined
   }
-  if (!Array.isArray(data)) {
+  if (!isRecord(data)) {
+    return undefined
+  }
+  const list = data['issues']
+  if (!isList(list)) {
     return undefined
   }
 
-  return data.flatMap((item: unknown) => {
+  const spans = list.flatMap((item: unknown) => {
     const span = toSpan(item, text)
     return span === undefined ? [] : [span]
   })
+  const guess = toGuess(data['language'], data['confidence'])
+  return guess === undefined ? { spans } : { spans, guess }
+}
+
+function toGuess(
+  language: unknown,
+  confidence: unknown,
+): LanguageGuess | undefined {
+  if (typeof language !== 'string' || language === '') {
+    return undefined
+  }
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence)) {
+    return undefined
+  }
+  return { language, confidence }
 }
 
 function toSpan(item: unknown, text: string): Span | undefined {
@@ -321,7 +356,10 @@ export function typeaheadRows(
 }
 
 export function tokenAt(text: string, cursor: number): Token {
-  const start = text.slice(0, cursor).search(/\S*$/)
+  let start = cursor
+  while (start > 0 && !SPACE.test(text.charAt(start - 1))) {
+    start -= 1
+  }
   return { token: text.slice(start, cursor), start, cursor }
 }
 
@@ -331,6 +369,24 @@ export function hunspellDictionary(option: unknown): string | undefined {
   }
   const name = option.trim()
   return DICTIONARY_NAME.test(name) ? name : undefined
+}
+
+export function isDictionaryLanguage(
+  dictionary: string,
+  configured: string,
+  guess: LanguageGuess | undefined,
+): boolean {
+  if (configured !== '') {
+    return baseLanguage(configured) === baseLanguage(dictionary)
+  }
+  if (guess === undefined || guess.confidence < SURE_GUESS) {
+    return true
+  }
+  return baseLanguage(guess.language) === baseLanguage(dictionary)
+}
+
+function baseLanguage(code: string): string {
+  return (code.split(LANGUAGE_SUBTAG)[0] ?? '').toLowerCase()
 }
 
 export function mergeSpans(

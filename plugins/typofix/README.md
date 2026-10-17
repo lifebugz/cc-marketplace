@@ -17,6 +17,8 @@ in a second language.
 
 ## Install
 
+typofix needs Claude Code 2.1.300 or later.
+
 ```shell
 /plugin marketplace add lifebugz/cc-marketplace
 /plugin install typofix@lifebugz
@@ -98,6 +100,12 @@ none), whose `.aff` and `.dic` files go in `~/Library/Spelling/`. A word is
 listed when either checker flags it. typofix adds hunspell's results for
 Latin-script words only, so words in other alphabets come from macOS alone.
 
+hunspell checks only drafts in its dictionary's language. typofix skips it when
+the `language` option names another language. With no `language` set, typofix
+skips it when macOS is sure (90 % or more) that the draft is in another
+language, such as a German draft with the `en_US` dictionary. When macOS is not
+sure, as often happens with a short draft, hunspell still checks it.
+
 typofix has its own `hunspell` option for the dictionary (below). It doesn't
 read Claude Code's settings, so Claude Code's own
 [`spellcheck`](https://code.claude.com/docs/en/interactive-mode#check-spelling-as-you-type)
@@ -108,10 +116,10 @@ of the session and macOS checks alone, with no message (the debug log says why).
 
 ## Settings
 
-| Option     | Default | What it does                                                                                                    |
-| :--------- | :------ | :-------------------------------------------------------------------------------------------------------------- |
-| `language` | empty   | The macOS spelling language, such as `en` or `de`. Empty means the spell checker detects the language itself    |
-| `hunspell` | `en_US` | The hunspell dictionary for English words, such as `en_US` or `en_GB`. Empty means typofix doesn't use hunspell |
+| Option     | Default | What it does                                                                                                                         |
+| :--------- | :------ | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `language` | empty   | The macOS spelling language, such as `en` or `de`. Empty means the spell checker detects the language itself                         |
+| `hunspell` | `en_US` | The hunspell dictionary, such as `en_US` or `en_GB`. It checks only drafts in its language. Empty means typofix doesn't use hunspell |
 
 Change them in `/config` or with `/plugin configure typofix`.
 
@@ -138,8 +146,8 @@ work.
   key is enough), because marking it at once would move the cursor.
 - Claude Code decides where the suggestion list is drawn. The band steps aside so
   the fixes sit next to the prompt; it comes back when the cursor moves on.
-- A fix taken with Tab keeps the cursor where it is. A fix from the band replaces
-  the whole draft, so the cursor moves to the end.
+- A fix taken with Tab keeps the cursor where it is. A fix or an ignore from the
+  band replaces the whole draft, so the cursor moves to the end.
 - The live check runs a program on your computer, so it needs a local Claude Code:
   the terminal, or the desktop app's local Code tab.
 - Grammar checks are best effort. The macOS grammar model does not flag the same
@@ -176,4 +184,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.296 on macOS.
+Tested with Claude Code 2.1.302 on macOS.

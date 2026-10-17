@@ -8,6 +8,7 @@ import {
   fixLetter,
   focusShortcut,
   hunspellDictionary,
+  isDictionaryLanguage,
   isDraft,
   maskCode,
   mergeSpans,
@@ -80,34 +81,42 @@ describe('maskCode', () => {
 })
 
 describe('parseMacResult', () => {
-  test('reads the script output against the draft', () => {
-    const json = JSON.stringify([
-      {
-        start: 24,
-        end: 27,
-        kind: 'spelling',
-        choices: ['the', 'tech', 'tea', 'tee'],
-      },
-    ])
-    const spans = parseMacResult(json, DRAFT)
+  test('reads the script output against the draft, with the language guess', () => {
+    const json = JSON.stringify({
+      language: 'en',
+      confidence: 0.51,
+      issues: [
+        {
+          start: 24,
+          end: 27,
+          kind: 'spelling',
+          choices: ['the', 'tech', 'tea', 'tee'],
+        },
+      ],
+    })
 
-    expect(spans).toEqual([span(DRAFT, 'teh')])
+    expect(parseMacResult(json, DRAFT)).toEqual({
+      spans: [span(DRAFT, 'teh')],
+      guess: { language: 'en', confidence: 0.51 },
+    })
   })
 
   test('drops entries out of range or of an unknown kind, and duplicate or unchanged choices', () => {
-    const json = JSON.stringify([
-      { start: 30, end: 99, kind: 'spelling', choices: ['x'] },
-      { start: 0, end: 6, kind: 'style', choices: ['x'] },
-      { start: 2.5, end: 6, kind: 'spelling', choices: ['x'] },
-      {
-        start: 18,
-        end: 23,
-        kind: 'grammar',
-        choices: ['checks', 'check', 'checks', 7],
-      },
-    ])
+    const json = JSON.stringify({
+      issues: [
+        { start: 30, end: 99, kind: 'spelling', choices: ['x'] },
+        { start: 0, end: 6, kind: 'style', choices: ['x'] },
+        { start: 2.5, end: 6, kind: 'spelling', choices: ['x'] },
+        {
+          start: 18,
+          end: 23,
+          kind: 'grammar',
+          choices: ['checks', 'check', 'checks', 7],
+        },
+      ],
+    })
 
-    expect(parseMacResult(json, DRAFT)).toEqual([
+    expect(parseMacResult(json, DRAFT)?.spans).toEqual([
       {
         id: 'grammar:18:check',
         original: 'check',
@@ -119,9 +128,66 @@ describe('parseMacResult', () => {
     ])
   })
 
-  test('answers undefined for output that is not a JSON list', () => {
+  test('keeps no guess when the language or the confidence is missing or malformed', () => {
+    for (const guess of [
+      {},
+      { language: 'de' },
+      { confidence: 0.99 },
+      { language: '', confidence: 0.99 },
+      { language: 'de', confidence: '0.99' },
+      { language: 7, confidence: 0.99 },
+    ]) {
+      const checked = parseMacResult(
+        JSON.stringify({ ...guess, issues: [] }),
+        DRAFT,
+      )
+      expect(checked, JSON.stringify(guess)).toEqual({ spans: [] })
+    }
+  })
+
+  test('answers undefined for output with no list of issues', () => {
     expect(parseMacResult('oops', DRAFT)).toBeUndefined()
-    expect(parseMacResult('{"start": 1}', DRAFT)).toBeUndefined()
+    expect(parseMacResult('[]', DRAFT)).toBeUndefined()
+    expect(parseMacResult('{"language": "en"}', DRAFT)).toBeUndefined()
+    expect(parseMacResult('{"issues": {}}', DRAFT)).toBeUndefined()
+  })
+})
+
+describe('isDictionaryLanguage', () => {
+  test('the language option decides when it is set', () => {
+    const sure = { language: 'en', confidence: 0.99 }
+    expect(isDictionaryLanguage('en_US', 'de', sure)).toBe(false)
+    expect(isDictionaryLanguage('en_US', 'en', undefined)).toBe(true)
+    expect(isDictionaryLanguage('en_US', 'en_GB', undefined)).toBe(true)
+  })
+
+  test('without the option, only a sure guess in another language skips the dictionary', () => {
+    expect(
+      isDictionaryLanguage('en_US', '', { language: 'de', confidence: 0.99 }),
+    ).toBe(false)
+    expect(
+      isDictionaryLanguage('en_US', '', { language: 'en', confidence: 0.99 }),
+    ).toBe(true)
+    expect(
+      isDictionaryLanguage('en_US', '', { language: 'id', confidence: 0.51 }),
+    ).toBe(true)
+    expect(
+      isDictionaryLanguage('en_US', '', { language: 'de', confidence: 0.9 }),
+    ).toBe(false)
+  })
+
+  test('an unknown language keeps the dictionary', () => {
+    expect(isDictionaryLanguage('en_US', '', undefined)).toBe(true)
+  })
+
+  test('compares base codes, so en_GB, en-GB and en match', () => {
+    expect(
+      isDictionaryLanguage('en_GB', '', { language: 'en', confidence: 0.99 }),
+    ).toBe(true)
+    expect(isDictionaryLanguage('en-GB', 'EN_us', undefined)).toBe(true)
+    expect(
+      isDictionaryLanguage('de_DE', '', { language: 'en', confidence: 0.99 }),
+    ).toBe(false)
   })
 })
 
@@ -292,6 +358,23 @@ describe('tokenAt', () => {
     })
     expect(tokenAt('fix teh ', 8)).toEqual({ token: '', start: 8, cursor: 8 })
     expect(tokenAt('teh', 3)).toEqual({ token: 'teh', start: 0, cursor: 3 })
+  })
+
+  test('stays fast with a long run of text with no spaces before the cursor', () => {
+    const run = 'x'.repeat(100_000)
+    const text = `${run} fix teh`
+    const startedAt = Date.now()
+    const after = tokenAt(text, text.length)
+    const inside = tokenAt(run, run.length)
+    const elapsedMs = Date.now() - startedAt
+
+    expect(after).toEqual({
+      token: 'teh',
+      start: text.length - 3,
+      cursor: text.length,
+    })
+    expect(inside).toEqual({ token: run, start: 0, cursor: run.length })
+    expect(elapsedMs).toBeLessThan(50)
   })
 })
 
