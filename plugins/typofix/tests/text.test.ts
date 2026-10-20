@@ -189,6 +189,33 @@ describe('parseMacResult', () => {
     ).toEqual([['mising', 28, ['missing']]])
   })
 
+  test('pairs a quote across a line break, but not across a blank line', () => {
+    expect(
+      macSpans("the hint says 'run it\nagian' now", 22, 27, ['again']),
+    ).toEqual([['agian', 22, ['again']]])
+    expect(
+      macSpans("the hint says 'run it\n\nagian' now", 23, 28, ['again']),
+    ).toEqual([["agian'", 23, ['again']]])
+  })
+
+  test('never opens a quote with an elision such as ’tis or ’em', () => {
+    expect(macSpans("'tis the 'Sumbit' button", 10, 16, ['Submit'])).toEqual([
+      ['Sumbit', 10, ['Submit']],
+    ])
+    expect(
+      macSpans("send 'em to the uesrs' inbox", 16, 21, ['users', "user's"]),
+    ).toEqual([["uesrs'", 16, ["users'", "user's"]]])
+  })
+
+  test('leaves the apostrophes inside code out of the quote pairing', () => {
+    expect(
+      macSpans("use `split(' ')` and click 'Sumbit' now", 28, 34, ['Submit']),
+    ).toEqual([['Sumbit', 28, ['Submit']]])
+    expect(
+      macSpans("the status line shows '`main` is ahaed'", 33, 38, ['ahead']),
+    ).toEqual([['ahaed', 33, ['ahead']]])
+  })
+
   test('answers undefined for output with no list of issues', () => {
     expect(parseMacResult('oops', DRAFT)).toBeUndefined()
     expect(parseMacResult('[]', DRAFT)).toBeUndefined()
@@ -323,6 +350,12 @@ describe('ispell fallback', () => {
     expect(
       read("& don’t’ 2 12: don't, doesn't", 'he said ‘don’t’ there'),
     ).toEqual([])
+    expect(
+      read(
+        "& cant’ 5 8: can't, cant, cant's, cants, canto",
+        'the ‘cant’ of politics is old',
+      ),
+    ).toEqual([])
   })
 
   test('keeps an apostrophe that belongs to the word, so a fix leaves none behind', () => {
@@ -333,8 +366,20 @@ describe('ispell fallback', () => {
       "the friend's house",
     )
     expect(
-      fixFirst("& ’tis 4 5: it's, ti's, Otis, isn't", 'get ’tis done'),
-    ).toBe("get it's done")
+      fixFirst("& freinds’ 1 12: friend's", '’tis the freinds’ house'),
+    ).toBe("’tis the friend's house")
+    expect(
+      fixFirst(
+        "& cant’ 5 3: can't, cant, cant's, cants, canto",
+        'I cant’ see the logs',
+      ),
+    ).toBe("I can't see the logs")
+  })
+
+  test('reads a typo on the second line of a draft', () => {
+    expect(
+      read('\n& agian 2 1: again, avian', "the hint says 'run it\nagian'"),
+    ).toEqual([['agian', 22, ['again', 'avian']]])
   })
 
   test('reads a typo at the end of a quoted phrase, and keeps the quote', () => {
@@ -348,6 +393,7 @@ describe('ispell fallback', () => {
 
   test('skips a one-letter word, and a word hunspell glued to another script', () => {
     expect(read("& ’n’ 1 6: don't", 'rock ’n’ roll is fun')).toEqual([])
+    expect(read("& ’y’ 1 7: sec'y", 'press ’y’ to go on')).toEqual([])
     expect(
       read("& Submit'ボタン 1 10: Submitting", "use the 'Submit'ボタン here"),
     ).toEqual([])
@@ -356,11 +402,18 @@ describe('ispell fallback', () => {
     ).toEqual([])
   })
 
-  test('skips a word hunspell read without an apostrophe that belongs to it', () => {
+  test('skips an elision, and a word hunspell read without an apostrophe that belongs to it', () => {
     expect(
       read('& goin 11 1: goon, gin, groin, going', "goin' home now"),
     ).toEqual([])
     expect(read('& tis 1 2: tees', "'tis the season")).toEqual([])
+    expect(read('& tis 1 2: tees', "'tis the 'Save' button")).toEqual([])
+    expect(
+      read('& ello 5 2: ell, cello, hello, ells, ell o', "'ello there mate"),
+    ).toEqual([])
+    expect(
+      read("& ’tis 4 5: it's, ti's, Otis, isn't", 'get ’tis done'),
+    ).toEqual([])
   })
 })
 
@@ -433,6 +486,15 @@ describe('shiftSpans', () => {
   test('keeps a quoted word when the closing quote touches Japanese letters, and drops a word an unclosed quote starts', () => {
     expect(kept("use the 'Sumbit'ボタン here", 'Sumbit')).toBe(1)
     expect(kept("please press the 'Sumbit", 'Sumbit')).toBe(0)
+  })
+
+  test('reads a listed elision only as a whole word', () => {
+    expect(kept("'Tis the 'Sumbit' button", 'Sumbit')).toBe(1)
+    expect(kept("the 'em' tag and the 'Sumbit' button", 'Sumbit')).toBe(1)
+    expect(kept("the 'Emti' event fires twice", 'Emti')).toBe(1)
+    expect(kept("the 'tisue' sample is here", 'tisue')).toBe(1)
+    expect(kept("use 'round robni' scheduling", 'robni')).toBe(1)
+    expect(kept("the 'Sign in' and 'Lgo out' buttons", 'Lgo')).toBe(1)
   })
 
   test('drops a part of a word that a digit or an underscore joins to', () => {

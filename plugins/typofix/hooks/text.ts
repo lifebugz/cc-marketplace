@@ -50,9 +50,10 @@ const SURE_GUESS = 0.9
 const LATIN_WORD = /^[\p{Script=Latin}\p{M}'’]+$/u
 const DICTIONARY_NAME = /^[A-Za-z0-9_-]+$/
 
+const CODE_SPANS = [/```[\s\S]*?(?:```|$)/g, /`[^`\n]*`/g]
+
 const MASKED_REGIONS = [
-  /```[\s\S]*?(?:```|$)/g,
-  /`[^`\n]*`/g,
+  ...CODE_SPANS,
   /\b[a-z][a-z\d+.-]*:\/\/\S+/gi,
   /(?<!\S)(?:~|\.{1,2})?\/\S*/g,
   /(?<!\S)@\S+/g,
@@ -65,6 +66,9 @@ const PLURAL_CAPS = /^\p{Lu}{2,}s$/u
 const WORD_LETTER = /[\p{L}\p{N}\p{M}_]/u
 const APOSTROPHE = /['’]/u
 const LEFT_QUOTE = '‘'
+const LEADING_ELISION =
+  /^(?:tis|twas|twere|twill|em|til|cause|cuz|cos|bout|nuff|n|kay|fraid|gainst|neath|scuse|cept|twixt)(?![\p{L}\p{N}\p{M}_])/iu
+const BLANK_LINE = /\n[ \t]*\n/g
 const EDGE_APOSTROPHES = /^['’]+|['’]+$/gu
 const TRAILING_MARKS = /\p{M}+$/u
 const PLURAL_END = /s$/iu
@@ -88,31 +92,34 @@ const REWRITE_SYSTEM = [
 ].join('\n')
 
 export function maskCode(text: string): string {
-  const units = text.split('')
-  const blank = (start: number, end: number): void => {
-    for (let i = start; i < end; i++) {
-      if (units[i] !== '\n') {
-        units[i] = ' '
-      }
-    }
-  }
-
-  for (const pattern of MASKED_REGIONS) {
-    for (const match of text.matchAll(pattern)) {
-      blank(match.index, match.index + match[0].length)
-    }
-  }
-
+  const units = fillRegions(text, 'masked', ' ').split('')
   for (const match of text.matchAll(TOKEN)) {
     const parts = EDGE_PUNCTUATION.exec(match[0])
     const lead = parts?.[1] ?? ''
     const core = parts?.[2] ?? ''
     if (isCodeLike(core)) {
       const start = match.index + lead.length
-      blank(start, start + core.length)
+      units.fill(' ', start, start + core.length)
     }
   }
+  return units.join('')
+}
 
+function fillRegions(
+  text: string,
+  regions: 'code' | 'masked',
+  fill: string,
+): string {
+  const units = text.split('')
+  for (const pattern of regions === 'code' ? CODE_SPANS : MASKED_REGIONS) {
+    for (const match of text.matchAll(pattern)) {
+      for (let i = match.index; i < match.index + match[0].length; i++) {
+        if (units[i] !== '\n') {
+          units[i] = fill
+        }
+      }
+    }
+  }
   return units.join('')
 }
 
@@ -270,48 +277,59 @@ export function parseIspell(output: string, text: string): Span[] {
     if (index < 0) {
       continue
     }
-    const read = readIspellWord(line, word, index, miss?.[3]?.split(', ') ?? [])
+    const read = readIspellWord(
+      text,
+      word,
+      lineStart + index,
+      miss?.[3]?.split(', ') ?? [],
+    )
     if (read !== undefined) {
-      spans.push(
-        makeSpan(
-          read.original,
-          lineStart + read.start,
-          'spelling',
-          read.choices,
-        ),
-      )
+      spans.push(makeSpan(read.original, read.start, 'spelling', read.choices))
     }
   }
   return spans
 }
 
 function readIspellWord(
-  line: string,
+  text: string,
   word: string,
   index: number,
   suggested: readonly string[],
 ): IspellWord | undefined {
   const bare = withoutEdgeApostrophes(word)
-  if (
-    bare.length < 2 ||
-    mixesScripts(bare) ||
-    suggested.some(choice => isSameWord(choice, bare))
-  ) {
+  if (bare.length < 2 || mixesScripts(bare)) {
     return undefined
   }
   const bareEnd = index + bare.length
-  const start = isWordApostrophe(line, index - 1) ? index - 1 : index
-  const end = isWordApostrophe(line, bareEnd) ? bareEnd + 1 : bareEnd
+  const start = isWordApostrophe(text, index - 1) ? index - 1 : index
+  const end = isWordApostrophe(text, bareEnd) ? bareEnd + 1 : bareEnd
+  if (start < index && isLeadingElision(text, start)) {
+    return undefined
+  }
+  const isQuoteOnlyFault =
+    suggested.some(choice => isSameWord(choice, bare)) &&
+    !(end > bareEnd && restoresContraction(suggested[0], bare))
   const tokenStart = index - word.indexOf(bare)
   const tokenEnd = tokenStart + word.length
   if (
-    line.slice(tokenStart, tokenEnd) !== word ||
+    isQuoteOnlyFault ||
+    text.slice(tokenStart, tokenEnd) !== word ||
     start < tokenStart ||
     end > tokenEnd
   ) {
     return undefined
   }
-  return { original: line.slice(start, end), start, choices: suggested }
+  return { original: text.slice(start, end), start, choices: suggested }
+}
+
+function restoresContraction(
+  choice: string | undefined,
+  bare: string,
+): boolean {
+  return (
+    bare.endsWith('t') &&
+    choice?.replaceAll('’', "'") === `${bare.slice(0, -1)}'t`
+  )
 }
 
 function mixesScripts(word: string): boolean {
@@ -404,44 +422,63 @@ function continuesLetters(char: string, edge: string): boolean {
 }
 
 function isWordApostrophe(text: string, at: number): boolean {
-  if (!APOSTROPHE.test(text.charAt(at))) {
-    return false
-  }
-  const lineStart = text.lastIndexOf('\n', at - 1) + 1
-  const lineBreak = text.indexOf('\n', at)
-  const line = text.slice(lineStart, lineBreak < 0 ? text.length : lineBreak)
-  return rolesOf(line)[at - lineStart] === 'word'
+  return APOSTROPHE.test(text.charAt(at)) && rolesOf(text)[at] === 'word'
+}
+
+function isLeadingElision(text: string, at: number): boolean {
+  return LEADING_ELISION.test(text.slice(at + 1, at + 9))
 }
 
 type QuoteRole = 'open' | 'close' | 'word' | undefined
 
-// Every span on a line asks for the same roles on each key press.
+// Every span in a draft asks for the same roles on each key press.
 let lastRoles:
-  { readonly line: string; readonly roles: readonly QuoteRole[] } | undefined
+  { readonly text: string; readonly roles: readonly QuoteRole[] } | undefined
 
-function rolesOf(line: string): readonly QuoteRole[] {
-  if (lastRoles?.line === line) {
+function rolesOf(text: string): readonly QuoteRole[] {
+  if (lastRoles?.text === text) {
     return lastRoles.roles
   }
-  const roles = quoteRoles(line)
-  lastRoles = { line, roles }
+  const roles = quoteRoles(text)
+  lastRoles = { text, roles }
   return roles
 }
 
-function quoteRoles(line: string): QuoteRole[] {
-  const isLetterAt = (i: number): boolean => WORD_LETTER.test(line.charAt(i))
+function quoteRoles(text: string): QuoteRole[] {
+  // Code counts as one word: its own apostrophes are no quotes, and a quote
+  // may still open or close right at it.
+  const plain = fillRegions(text, 'code', 'x')
+  let roles: QuoteRole[] = []
+  let start = 0
+  for (const blank of plain.matchAll(BLANK_LINE)) {
+    roles = roles.concat(
+      paragraphRoles(plain.slice(start, blank.index)),
+      Array.from({ length: blank[0].length }, (): QuoteRole => undefined),
+    )
+    start = blank.index + blank[0].length
+  }
+  return roles.concat(paragraphRoles(plain.slice(start)))
+}
+
+function paragraphRoles(paragraph: string): QuoteRole[] {
+  const isLetterAt = (i: number): boolean =>
+    WORD_LETTER.test(paragraph.charAt(i))
   const isInWord = (i: number): boolean =>
     isLetterAt(i - 1) &&
     isLetterAt(i + 1) &&
-    !isScriptChange(line.charAt(i - 1), line.charAt(i + 1))
+    !isScriptChange(paragraph.charAt(i - 1), paragraph.charAt(i + 1))
   let lastCloser = -1
-  for (let i = line.length - 1; i >= 0 && lastCloser < 0; i--) {
-    if (APOSTROPHE.test(line.charAt(i)) && isLetterAt(i - 1) && !isInWord(i)) {
+  for (let i = paragraph.length - 1; i >= 0 && lastCloser < 0; i--) {
+    if (
+      APOSTROPHE.test(paragraph.charAt(i)) &&
+      isLetterAt(i - 1) &&
+      !isInWord(i)
+    ) {
       lastCloser = i
     }
   }
   let isOpen = false
-  return line.split('').map((char, i): QuoteRole => {
+  return paragraph.split('').map((char, i): QuoteRole => {
     if (char === LEFT_QUOTE) {
       isOpen = true
       return 'open'
@@ -472,11 +509,11 @@ function quoteRoles(line: string): QuoteRole[] {
       }
       return 'word'
     }
-    const next = line.charAt(i + 1)
+    const next = paragraph.charAt(i + 1)
     if (next === '' || SPACE.test(next)) {
       return undefined
     }
-    if (isOpen || lastCloser < i) {
+    if (isOpen || lastCloser < i || isLeadingElision(paragraph, i)) {
       return isBeforeLetter ? 'word' : undefined
     }
     isOpen = true
