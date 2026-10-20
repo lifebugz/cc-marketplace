@@ -96,8 +96,9 @@ Sources first: macOS can use Ctrl+Space to switch the keyboard language.
 macOS accepts some typos, such as `whaat`, and misses some in very short drafts.
 So on macOS, typofix also asks [hunspell](https://github.com/hunspell/hunspell)
 when it is installed: `brew install hunspell`, plus a dictionary (Homebrew ships
-none), whose `.aff` and `.dic` files go in `~/Library/Spelling/`. A word is
-listed when either checker flags it. typofix adds hunspell's results for
+none), whose `.aff` and `.dic` files go in `~/Library/Spelling/`. typofix runs
+every spell checker in its own folder, so a dictionary or word list in the
+folder you opened is never used. A word is listed when either checker flags it. typofix adds hunspell's results for
 Latin-script words only, so words in other alphabets come from macOS alone.
 
 hunspell checks only drafts in its dictionary's language. typofix skips it when
@@ -184,4 +185,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.302 on macOS.
+Tested with Claude Code 2.1.304 on macOS.

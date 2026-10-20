@@ -33,6 +33,12 @@ export interface RewriteRequest {
   readonly prompt: string
 }
 
+interface IspellWord {
+  readonly original: string
+  readonly start: number
+  readonly choices: readonly string[]
+}
+
 const MAX_CHOICES = 3
 const DRAFT_WORDS = 3
 const DEFAULT_FOCUS_KEY = 'ctrl+x tab'
@@ -56,7 +62,14 @@ const TOKEN = /\S+/g
 const EDGE_PUNCTUATION = /^([^\p{L}\p{N}_@~]*)(.*?)[^\p{L}\p{N}_@~]*$/u
 const CODE_LIKE = /[_./@\d]|\p{Ll}\p{Lu}/u
 const PLURAL_CAPS = /^\p{Lu}{2,}s$/u
-const WORD_CHAR = /[\p{L}\p{N}\p{M}_'’]/u
+const WORD_LETTER = /[\p{L}\p{N}\p{M}_]/u
+const APOSTROPHE = /['’]/u
+const LEFT_QUOTE = '‘'
+const EDGE_APOSTROPHES = /^['’]+|['’]+$/gu
+const TRAILING_MARKS = /\p{M}+$/u
+const PLURAL_END = /s$/iu
+const LETTER = /\p{L}/u
+const LATIN = /\p{Script=Latin}/u
 const SPACE = /\s/
 const LANGUAGE_SUBTAG = /[-_]/
 
@@ -171,11 +184,25 @@ function toSpan(item: unknown, text: string): Span | undefined {
     return undefined
   }
 
-  const original = text.slice(start, end)
-  const strings = choices.filter(
-    (c: unknown): c is string => typeof c === 'string',
-  )
+  const apostrophe = isWordApostrophe(text, end) ? text.charAt(end) : ''
+  const spanEnd = end + apostrophe.length
+  if (!isWholeWord(text, start, spanEnd)) {
+    return undefined
+  }
+
+  const original = text.slice(start, spanEnd)
+  const strings = choices
+    .filter((c: unknown): c is string => typeof c === 'string')
+    .map(choice => withApostrophe(choice, apostrophe))
   return makeSpan(original, start, kind, strings)
+}
+
+function withApostrophe(choice: string, apostrophe: string): string {
+  return apostrophe !== '' &&
+    PLURAL_END.test(choice) &&
+    !APOSTROPHE.test(choice)
+    ? choice + apostrophe
+    : choice
 }
 
 function makeSpan(
@@ -233,18 +260,73 @@ export function parseIspell(output: string, text: string): Span[] {
       continue
     }
 
-    const index = locate(
+    const bare = withoutEdgeApostrophes(word)
+    const index = locateBy(
       line,
-      word,
-      byteOffsetToIndex(`^${line}`, reported) - 1,
+      bare,
+      byteOffsetToIndex(`^${line}`, reported) - 1 + word.indexOf(bare),
+      hasNoLetterNeighbors,
     )
     if (index < 0) {
       continue
     }
-    const choices = miss?.[3]?.split(', ') ?? []
-    spans.push(makeSpan(word, lineStart + index, 'spelling', choices))
+    const read = readIspellWord(line, word, index, miss?.[3]?.split(', ') ?? [])
+    if (read !== undefined) {
+      spans.push(
+        makeSpan(
+          read.original,
+          lineStart + read.start,
+          'spelling',
+          read.choices,
+        ),
+      )
+    }
   }
   return spans
+}
+
+function readIspellWord(
+  line: string,
+  word: string,
+  index: number,
+  suggested: readonly string[],
+): IspellWord | undefined {
+  const bare = withoutEdgeApostrophes(word)
+  if (
+    bare.length < 2 ||
+    mixesScripts(bare) ||
+    suggested.some(choice => isSameWord(choice, bare))
+  ) {
+    return undefined
+  }
+  const bareEnd = index + bare.length
+  const start = isWordApostrophe(line, index - 1) ? index - 1 : index
+  const end = isWordApostrophe(line, bareEnd) ? bareEnd + 1 : bareEnd
+  const tokenStart = index - word.indexOf(bare)
+  const tokenEnd = tokenStart + word.length
+  if (
+    line.slice(tokenStart, tokenEnd) !== word ||
+    start < tokenStart ||
+    end > tokenEnd
+  ) {
+    return undefined
+  }
+  return { original: line.slice(start, end), start, choices: suggested }
+}
+
+function mixesScripts(word: string): boolean {
+  const letters = word.split('').filter(char => LETTER.test(char))
+  return letters.some((char, i) => isScriptChange(letters[i - 1] ?? '', char))
+}
+
+function isSameWord(choice: string, word: string): boolean {
+  const plain = (text: string): string =>
+    withoutEdgeApostrophes(text).replaceAll('’', "'")
+  return plain(choice) === plain(word)
+}
+
+function withoutEdgeApostrophes(word: string): string {
+  return word.replace(EDGE_APOSTROPHES, '')
 }
 
 function byteOffsetToIndex(line: string, byteOffset: number): number {
@@ -260,30 +342,150 @@ function byteOffsetToIndex(line: string, byteOffset: number): number {
 }
 
 export function locate(text: string, word: string, near: number): number {
+  return locateBy(text, word, near, isWholeWord)
+}
+
+function locateBy(
+  text: string,
+  word: string,
+  near: number,
+  isWhole: (text: string, start: number, end: number) => boolean,
+): number {
   if (word === '') {
     return -1
   }
   let best = -1
   for (let at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
-    const isWhole =
-      !isWordChar(text[at - 1]) && !isWordChar(text[at + word.length])
-    if (isWhole && (best < 0 || Math.abs(at - near) < Math.abs(best - near))) {
+    if (
+      isWhole(text, at, at + word.length) &&
+      (best < 0 || Math.abs(at - near) < Math.abs(best - near))
+    ) {
       best = at
     }
   }
   return best
 }
 
-function isWordChar(char: string | undefined): boolean {
-  return char !== undefined && WORD_CHAR.test(char)
-}
-
 export function isIntact(text: string, span: Span): boolean {
   return (
     text.slice(span.start, span.end) === span.original &&
-    !isWordChar(text[span.start - 1]) &&
-    !isWordChar(text[span.end])
+    isWholeWord(text, span.start, span.end)
   )
+}
+
+function isWholeWord(text: string, start: number, end: number): boolean {
+  const word = text.slice(start, end).replace(TRAILING_MARKS, '')
+  return (
+    !continuesWord(text, start - 1, word.charAt(0)) &&
+    !continuesWord(text, end, word.charAt(word.length - 1))
+  )
+}
+
+function hasNoLetterNeighbors(
+  text: string,
+  start: number,
+  end: number,
+): boolean {
+  const word = text.slice(start, end).replace(TRAILING_MARKS, '')
+  return (
+    !continuesLetters(text.charAt(start - 1), word.charAt(0)) &&
+    !continuesLetters(text.charAt(end), word.charAt(word.length - 1))
+  )
+}
+
+function continuesWord(text: string, at: number, edge: string): boolean {
+  return APOSTROPHE.test(text.charAt(at))
+    ? isWordApostrophe(text, at)
+    : continuesLetters(text.charAt(at), edge)
+}
+
+function continuesLetters(char: string, edge: string): boolean {
+  return WORD_LETTER.test(char) && !isScriptChange(char, edge)
+}
+
+function isWordApostrophe(text: string, at: number): boolean {
+  if (!APOSTROPHE.test(text.charAt(at))) {
+    return false
+  }
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1
+  const lineBreak = text.indexOf('\n', at)
+  const line = text.slice(lineStart, lineBreak < 0 ? text.length : lineBreak)
+  return rolesOf(line)[at - lineStart] === 'word'
+}
+
+type QuoteRole = 'open' | 'close' | 'word' | undefined
+
+// Every span on a line asks for the same roles on each key press.
+let lastRoles:
+  { readonly line: string; readonly roles: readonly QuoteRole[] } | undefined
+
+function rolesOf(line: string): readonly QuoteRole[] {
+  if (lastRoles?.line === line) {
+    return lastRoles.roles
+  }
+  const roles = quoteRoles(line)
+  lastRoles = { line, roles }
+  return roles
+}
+
+function quoteRoles(line: string): QuoteRole[] {
+  const isLetterAt = (i: number): boolean => WORD_LETTER.test(line.charAt(i))
+  const isInWord = (i: number): boolean =>
+    isLetterAt(i - 1) &&
+    isLetterAt(i + 1) &&
+    !isScriptChange(line.charAt(i - 1), line.charAt(i + 1))
+  let lastCloser = -1
+  for (let i = line.length - 1; i >= 0 && lastCloser < 0; i--) {
+    if (APOSTROPHE.test(line.charAt(i)) && isLetterAt(i - 1) && !isInWord(i)) {
+      lastCloser = i
+    }
+  }
+  let isOpen = false
+  return line.split('').map((char, i): QuoteRole => {
+    if (char === LEFT_QUOTE) {
+      isOpen = true
+      return 'open'
+    }
+    if (!APOSTROPHE.test(char)) {
+      return undefined
+    }
+    if (isInWord(i)) {
+      return 'word'
+    }
+    const isAfterLetter = isLetterAt(i - 1)
+    const isBeforeLetter = isLetterAt(i + 1)
+    if (isAfterLetter && isBeforeLetter) {
+      if (isOpen) {
+        isOpen = false
+        return 'close'
+      }
+      if (lastCloser > i) {
+        isOpen = true
+        return 'open'
+      }
+      return undefined
+    }
+    if (isAfterLetter) {
+      if (isOpen) {
+        isOpen = false
+        return 'close'
+      }
+      return 'word'
+    }
+    const next = line.charAt(i + 1)
+    if (next === '' || SPACE.test(next)) {
+      return undefined
+    }
+    if (isOpen || lastCloser < i) {
+      return isBeforeLetter ? 'word' : undefined
+    }
+    isOpen = true
+    return 'open'
+  })
+}
+
+function isScriptChange(a: string, b: string): boolean {
+  return LETTER.test(a) && LETTER.test(b) && LATIN.test(a) !== LATIN.test(b)
 }
 
 export function shiftSpans(
@@ -333,7 +535,7 @@ export function offeredSpan(
       s.choices.length > 0 &&
       s.start >= at.start &&
       s.end <= at.cursor &&
-      !WORD_CHAR.test(at.token.slice(s.end - at.start)),
+      !WORD_LETTER.test(at.token.slice(s.end - at.start)),
   )
 }
 

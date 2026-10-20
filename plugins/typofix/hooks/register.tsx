@@ -390,17 +390,16 @@ async function checkText(
   $: EngineInterface,
   text: string,
 ): Promise<Span[] | undefined> {
-  const masked = maskCode(text)
   const candidates = candidateBackends()
   for (const candidate of candidates) {
-    const found = await runBackend($, candidate, masked)
+    const found = await runBackend($, candidate, text)
     if (found === 'unavailable') {
       continue
     }
     live.backend = candidate
     const spans =
       candidate.name === 'osascript'
-        ? await withExtra($, found, masked)
+        ? await withExtra($, found, text)
         : found?.spans
     return spans?.filter(
       span => text.slice(span.start, span.end) === span.original,
@@ -416,7 +415,7 @@ async function checkText(
 async function withExtra(
   $: EngineInterface,
   found: Checked | undefined,
-  masked: string,
+  text: string,
 ): Promise<readonly Span[] | undefined> {
   if (found === undefined || live.hunspell === undefined) {
     return found?.spans
@@ -432,7 +431,7 @@ async function withExtra(
     )
     return found.spans
   }
-  const extra = await runBackend($, extraBackend(live.hunspell), masked)
+  const extra = await runBackend($, extraBackend(live.hunspell), text)
   if (extra === 'unavailable' || extra === undefined) {
     $.ui.log(
       `typofix: hunspell -d ${live.hunspell} did not answer; macOS alone checks now`,
@@ -447,14 +446,17 @@ async function withExtra(
 async function runBackend(
   $: EngineInterface,
   backend: Backend,
-  masked: string,
+  text: string,
   isRetry = false,
 ): Promise<Checked | 'unavailable' | undefined> {
   const startedAt = await $.clock.now()
   let ran: ProcessRunResult
   try {
     ran = await $.process.run(backend.argv($.plugin.root, live.language), {
-      stdin: backend.input(masked),
+      // hunspell loads a dictionary and a word list from its working folder
+      // first, so a checker must never run in the opened project.
+      cwd: $.plugin.root,
+      stdin: backend.input(maskCode(text)),
       timeoutMs: SPELL_TIMEOUT_MS,
     })
   } catch (error) {
@@ -474,7 +476,7 @@ async function runBackend(
     // refused before its timeout is tried once more: a program that cannot
     // start is refused twice.
     if (willRetry) {
-      return runBackend($, backend, masked, true)
+      return runBackend($, backend, text, true)
     }
     return live.backend === backend ? undefined : 'unavailable'
   }
@@ -497,7 +499,9 @@ async function runBackend(
     $.ui.toast(warning.slice(SCRIPT_WARNING.length).trim(), { timeoutMs: 8000 })
   }
 
-  const checked = backend.parse(ran.stdout, masked)
+  // Parse against the draft itself: masking blanks code next to quotes, and
+  // a quote's role must match the text a fix is later applied to.
+  const checked = backend.parse(ran.stdout, text)
   if (checked === undefined) {
     $.ui.log(`typofix: could not read what ${backend.name} printed`, {
       to: 'debug',

@@ -93,6 +93,7 @@ interface World {
   toasts: string[]
   stdins: string[]
   programs: string[]
+  cwds: (string | undefined)[]
   reads: number
   replies: (ModelCompleteResult | 'refused')[]
   saved: Map<string, unknown>
@@ -125,6 +126,18 @@ const ran = (stdout: string, exitCode = 0): ProcessRunResult => ({
   isStdoutTruncated: false,
   isStderrTruncated: false,
 })
+
+const MAC_SCRIPT = '/scripts/spell-macos.js'
+
+function pluginRoot(world: {
+  readonly argvs: readonly (readonly string[])[]
+}): string {
+  const script = world.argvs.find(argv => argv[0] === 'osascript')?.[3] ?? ''
+  expect(script).toEndWith(MAC_SCRIPT)
+  const root = script.slice(0, -MAC_SCRIPT.length)
+  expect(['', '/work']).not.toContain(root)
+  return root
+}
 
 const macReads =
   (guess: Guess | undefined, ...issues: readonly MacIssue[]): Process =>
@@ -163,6 +176,7 @@ function setup(
     toasts: [],
     stdins: [],
     programs: [],
+    cwds: [],
     reads: 0,
     replies: [ANSWER],
     saved: new Map(),
@@ -213,6 +227,7 @@ function setup(
     world.programs.push(program)
     world.argvs.push(e.argv)
     world.stdins.push(e.init?.stdin ?? '')
+    world.cwds.push(e.init?.cwd)
     const result = process(e.argv, e.init?.stdin ?? '')
     if (result === 'timeout') {
       await world.clock.sleep(e.init?.timeoutMs ?? 30000)
@@ -343,6 +358,96 @@ describe('live spelling', () => {
     for (const hidden of ['tset', './src', 'https']) {
       expect(sent?.includes(hidden), hidden).toBe(false)
     }
+  })
+
+  test('a typo in quotes is fixed from the band, and the quotes stay', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(
+        { word: 'Sumbit', choices: ['Submit'] },
+        { word: 'Cancle', choices: ['Cancel'] },
+      ),
+      "the buttons 'Sumbit' and ‘Cancle’ look wrong",
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    await band.press({ key: 'fix-1-1' })
+    expect(world.toasts).toEqual([])
+    expect(world.filled).toEqual([
+      "the buttons 'Submit' and ‘Cancle’ look wrong",
+      "the buttons 'Submit' and ‘Cancel’ look wrong",
+    ])
+  })
+
+  test('a typo written right next to Chinese letters is fixed from the band', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'recieve', choices: ['receive'] }),
+      '我想recieve这个文件 and more words',
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    expect(world.toasts).toEqual([])
+    expect(world.filled).toEqual(['我想receive这个文件 and more words'])
+  })
+
+  test('a dropped g is fixed together with its apostrophe, and a plural possessive keeps it', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(
+        { word: 'talkin', choices: ['talking'] },
+        { word: 'freinds', choices: ['friends', "friend's"] },
+      ),
+      "stop talkin' about the freinds’ house",
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    await band.press({ key: 'fix-1-1' })
+    expect(world.toasts).toEqual([])
+    expect(world.filled).toEqual([
+      'stop talking about the freinds’ house',
+      'stop talking about the friends’ house',
+    ])
+  })
+
+  test('a typo at the end of a quoted error message keeps the closing quote, though the checker never sees the code inside', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'faild', choices: ['failed'] }),
+      "the CLI prints 'ERROR: build faild'",
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+
+    expect(world.stdins[0]).not.toContain('ERROR')
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    expect(world.toasts).toEqual([])
+    expect(world.filled).toEqual(["the CLI prints 'ERROR: build failed'"])
+  })
+
+  test('every fallback checker runs in the plugin folder, never in the opened project', async ($, on) => {
+    const onlyHunspell: Process = argv =>
+      argv[0] === 'hunspell'
+        ? ran('@(#) Hunspell\n& teh 1 5: the\n\n')
+        : 'missing'
+    const world = setup(on, onlyHunspell, 'fix teh bug now')
+    await startAndCheck($, world)
+
+    expect(new Set(world.programs)).toEqual(
+      new Set(['osascript', 'enchant-2', 'hunspell']),
+    )
+    const root = pluginRoot(world)
+    expect(world.cwds).toEqual(world.programs.map(() => root))
   })
 
   test('falls back to enchant-2 when osascript cannot start, at the right string index', async ($, on) => {
@@ -601,6 +706,9 @@ describe('hunspell and the shortcut', () => {
     await startAndCheck($, world)
 
     expect(world.settingsReads).toBe(0)
+    expect(world.programs).toEqual(['osascript', 'hunspell'])
+    const root = pluginRoot(world)
+    expect(world.cwds).toEqual([root, root])
     expect(world.argvs).toContainEqual([
       'hunspell',
       '-a',

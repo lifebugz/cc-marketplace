@@ -145,6 +145,50 @@ describe('parseMacResult', () => {
     }
   })
 
+  const macSpans = (
+    text: string,
+    start: number,
+    end: number,
+    choices: readonly string[],
+  ): unknown[] =>
+    (
+      parseMacResult(
+        JSON.stringify({ issues: [{ start, end, kind: 'spelling', choices }] }),
+        text,
+      )?.spans ?? []
+    ).map(s => [s.original, s.start, s.choices])
+
+  test('takes in an apostrophe that belongs to the word, and keeps it on a plural fix', () => {
+    expect(
+      macSpans("stop talkin' and start", 5, 11, ['talking', 'takin']),
+    ).toEqual([["talkin'", 5, ['talking', 'takin']]])
+    expect(macSpans('I dont’ see the logs', 2, 6, ["don't", 'done'])).toEqual([
+      ['dont’', 2, ["don't", 'done']],
+    ])
+    expect(
+      macSpans('the freinds’ house is big', 4, 11, ['friends', "friend's"]),
+    ).toEqual([['freinds’', 4, ['friends’', "friend's"]]])
+  })
+
+  test('keeps a word in a quote or a quoted phrase, and drops one after a quote that never closes', () => {
+    expect(macSpans("the 'Save and clsoe' label", 14, 19, ['close'])).toEqual([
+      ['clsoe', 14, ['close']],
+    ])
+    expect(macSpans("use the 'Sumbit'ボタン here", 9, 15, ['Submit'])).toEqual([
+      ['Sumbit', 9, ['Submit']],
+    ])
+    expect(macSpans("please press the 'Sumbit", 18, 24, ['Submit'])).toEqual([])
+  })
+
+  test('keeps a word in a quote that starts with a symbol, such as a path or a mention', () => {
+    expect(
+      macSpans("the dialog says '@admin must aprove'", 29, 35, ['approve']),
+    ).toEqual([['aprove', 29, ['approve']]])
+    expect(
+      macSpans("the log says '/tmp/cache is mising'", 28, 34, ['missing']),
+    ).toEqual([['mising', 28, ['missing']]])
+  })
+
   test('answers undefined for output with no list of issues', () => {
     expect(parseMacResult('oops', DRAFT)).toBeUndefined()
     expect(parseMacResult('[]', DRAFT)).toBeUndefined()
@@ -236,6 +280,88 @@ describe('ispell fallback', () => {
       ['zzq', 14, []],
     ])
   })
+
+  const read = (output: string, line: string): unknown[] =>
+    parseIspell(`@(#) Hunspell\n${output}\n\n`, line).map(s => [
+      s.original,
+      s.start,
+      s.choices,
+    ])
+  const fixFirst = (output: string, line: string): string | undefined => {
+    const [found] = parseIspell(`@(#) Hunspell\n${output}\n\n`, line)
+    const choice = found?.choices[0]
+    return found === undefined || choice === undefined
+      ? undefined
+      : applyChoice(line, found, choice)?.text
+  }
+
+  test('finds a word in quotes, and trims a quote hunspell keeps on the word', () => {
+    expect(
+      read(
+        '& Sumbit 4 18: Submit, Summit',
+        "the button says 'Sumbit' and the form",
+      ),
+    ).toEqual([['Sumbit', 17, ['Submit', 'Summit']]])
+    expect(
+      read('& Sumbit’ 1 20: Summit', 'the button says ‘Sumbit’ and the form'),
+    ).toEqual([['Sumbit', 17, ['Summit']]])
+    expect(read("& ’Sumbit’ 1 5: habit's", 'the ’Sumbit’ button')).toEqual([
+      ['Sumbit', 5, ["habit's"]],
+    ])
+    expect(
+      read("& Sumbit's 4 9: Summit's, Suit's", "look at Sumbit's label"),
+    ).toEqual([["Sumbit's", 8, ["Summit's", "Suit's"]]])
+  })
+
+  test('drops a word whose only fault is the quote hunspell keeps on it', () => {
+    expect(
+      read('& Cancel’ 2 8: Cancel, Cancels', 'the ‘Cancel’ button'),
+    ).toEqual([])
+    expect(
+      read("& users’ 3 12: user's, users, user", 'it’s the users’ files'),
+    ).toEqual([])
+    expect(
+      read("& don’t’ 2 12: don't, doesn't", 'he said ‘don’t’ there'),
+    ).toEqual([])
+  })
+
+  test('keeps an apostrophe that belongs to the word, so a fix leaves none behind', () => {
+    expect(fixFirst('& goin’ 1 7: going', 'I was goin’ home')).toBe(
+      'I was going home',
+    )
+    expect(fixFirst("& freinds’ 1 5: friend's", 'the freinds’ house')).toBe(
+      "the friend's house",
+    )
+    expect(
+      fixFirst("& ’tis 4 5: it's, ti's, Otis, isn't", 'get ’tis done'),
+    ).toBe("get it's done")
+  })
+
+  test('reads a typo at the end of a quoted phrase, and keeps the quote', () => {
+    expect(read('& clsoe 1 15: close', "the 'Save and clsoe' label")).toEqual([
+      ['clsoe', 14, ['close']],
+    ])
+    expect(read('& clsoe’ 1 17: close', 'the ‘Save and clsoe’ label')).toEqual([
+      ['clsoe', 14, ['close']],
+    ])
+  })
+
+  test('skips a one-letter word, and a word hunspell glued to another script', () => {
+    expect(read("& ’n’ 1 6: don't", 'rock ’n’ roll is fun')).toEqual([])
+    expect(
+      read("& Submit'ボタン 1 10: Submitting", "use the 'Submit'ボタン here"),
+    ).toEqual([])
+    expect(
+      read('& button日本 1 5: button', 'the button日本 is broken'),
+    ).toEqual([])
+  })
+
+  test('skips a word hunspell read without an apostrophe that belongs to it', () => {
+    expect(
+      read('& goin 11 1: goon, gin, groin, going', "goin' home now"),
+    ).toEqual([])
+    expect(read('& tis 1 2: tees', "'tis the season")).toEqual([])
+  })
 })
 
 describe('shiftSpans', () => {
@@ -286,6 +412,38 @@ describe('shiftSpans', () => {
         joined,
       ),
     ).toHaveLength(0)
+  })
+
+  const kept = (text: string, word: string): number =>
+    shiftSpans(
+      [span(text, word)],
+      { start: text.length, end: text.length, inputText: ' ok' },
+      `${text} ok`,
+    ).length
+
+  test('keeps a word in quotes, or between Chinese or Japanese letters', () => {
+    expect(kept("the button says 'Sumbit' and the form", 'Sumbit')).toBe(1)
+    expect(kept('the button says ‘Sumbit’ and the form', 'Sumbit')).toBe(1)
+    expect(kept('我想recieve这个文件 and more', 'recieve')).toBe(1)
+    expect(kept('この関数はrecieveを呼ぶ and more', 'recieve')).toBe(1)
+    const accented = `recieve${String.fromCodePoint(0x301)}`
+    expect(kept(`我想${accented}这个文件 and more`, accented)).toBe(1)
+  })
+
+  test('keeps a quoted word when the closing quote touches Japanese letters, and drops a word an unclosed quote starts', () => {
+    expect(kept("use the 'Sumbit'ボタン here", 'Sumbit')).toBe(1)
+    expect(kept("please press the 'Sumbit", 'Sumbit')).toBe(0)
+  })
+
+  test('drops a part of a word that a digit or an underscore joins to', () => {
+    expect(kept('call recieve2 now', 'recieve')).toBe(0)
+    expect(kept('my_recieve here', 'recieve')).toBe(0)
+  })
+
+  test('drops a part of a word that an apostrophe joins to more letters', () => {
+    expect(kept("look at Sumbit's label", 'Sumbit')).toBe(0)
+    expect(kept("je pense que l'adrresse est", 'adrresse')).toBe(0)
+    expect(kept('je pense que l’adrresse est', 'adrresse')).toBe(0)
   })
 })
 
@@ -346,6 +504,25 @@ describe('typeaheadRows', () => {
     expect(typeaheadRows([teh], { token: 'te', start: 4, cursor: 6 })).toEqual(
       [],
     )
+  })
+
+  test('offers the fixes after a closing quote, and none after more letters', () => {
+    const quoted = "says 'Sumbit' now"
+    const sumbit = span(quoted, 'Sumbit')
+    expect(
+      typeaheadRows([sumbit], token("'Sumbit'", 5)).map(r => r.text),
+    ).toEqual(["'the'", "'tech'", "'tea'"])
+    expect(
+      typeaheadRows([sumbit], token('‘Sumbit’', 5)).map(r => r.text),
+    ).toEqual(['‘the’', '‘tech’', '‘tea’'])
+    expect(typeaheadRows([sumbit], token("'Sumbit's", 5))).toEqual([])
+  })
+
+  test('replaces an apostrophe that belongs to the word', () => {
+    const talkin = span("stop talkin' now", "talkin'")
+    expect(
+      typeaheadRows([talkin], token("talkin'", 5)).map(r => r.text),
+    ).toEqual(['the', 'tech', 'tea'])
   })
 })
 
@@ -460,6 +637,21 @@ describe('applyChoice', () => {
     expect(
       applyChoice('Create a mod', span(DRAFT, 'teh'), 'the'),
     ).toBeUndefined()
+  })
+
+  test('keeps the quotes or the letters around the word it fixes', () => {
+    const fix = (text: string, word: string, choice: string): unknown =>
+      applyChoice(text, span(text, word), choice)?.text
+
+    expect(fix("says 'Sumbit' now", 'Sumbit', 'Submit')).toBe(
+      "says 'Submit' now",
+    )
+    expect(fix('says ‘Sumbit’ now', 'Sumbit', 'Submit')).toBe(
+      'says ‘Submit’ now',
+    )
+    expect(fix('我想recieve这个文件', 'recieve', 'receive')).toBe(
+      '我想receive这个文件',
+    )
   })
 })
 
