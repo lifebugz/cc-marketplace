@@ -97,6 +97,8 @@ interface World {
   reads: number
   replies: (ModelCompleteResult | 'refused')[]
   saved: Map<string, unknown>
+  isStoreRefused: boolean
+  prompts: string[]
   isSubmitDropped: boolean
   submitHold: SubmitHold | undefined
 }
@@ -180,6 +182,8 @@ function setup(
     reads: 0,
     replies: [ANSWER],
     saved: new Map(),
+    isStoreRefused: false,
+    prompts: [],
     isSubmitDropped: false,
     submitHold: undefined,
   }
@@ -244,7 +248,8 @@ function setup(
       ? { deny: `${program}: not found` }
       : { value: result }
   })
-  on('model.complete', () => {
+  on('model.complete', (_$, e) => {
+    world.prompts.push(e.prompt)
     const reply = world.replies.shift() ?? ANSWER
     return reply === 'refused'
       ? { deny: 'the haiku model is blocked' }
@@ -252,6 +257,9 @@ function setup(
   })
   on('store.get', (_$, e) => ({ value: world.saved.get(e.key) }))
   on('store.set', (_$, e) => {
+    if (world.isStoreRefused) {
+      return { deny: 'the store is read-only' }
+    }
     world.saved.set(e.key, e.value)
     return { value: undefined }
   })
@@ -479,7 +487,7 @@ describe('live spelling', () => {
       'hunspell',
     ])
     expect(world.toasts).toEqual([
-      'no spell checker found (Linux: install enchant-2 or hunspell). /rephrase still works.',
+      'no spell checker or dictionary found (Linux: install enchant-2 or hunspell and a dictionary such as en_US). /rephrase still works.',
     ])
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await band.find({ key: 'rephrase' })).toBeDefined()
@@ -499,7 +507,7 @@ describe('live spelling', () => {
     await world.clock.advance(2000)
 
     expect(world.toasts).toEqual([
-      'no spell checker found (Linux: install enchant-2 or hunspell). /rephrase still works.',
+      'no spell checker or dictionary found (Linux: install enchant-2 or hunspell and a dictionary such as en_US). /rephrase still works.',
     ])
     const before = world.programs.length
     await startAndCheck($, world)
@@ -686,6 +694,21 @@ describe('live spelling', () => {
     await startAndCheck($, world)
     expect(await band.find({ key: 'fix-1-1' })).toBeUndefined()
   })
+
+  test('an ignore the store refuses says so and keeps the word listed', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'Tovan', choices: ['Total'] }),
+      'ask Tovan about it',
+    )
+    world.isStoreRefused = true
+    await startAndCheck($, world)
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'ignore-1' })
+    expect(world.toasts).toEqual(['that did not work: the store is read-only'])
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'Total' })
+  })
 })
 
 describe('hunspell and the shortcut', () => {
@@ -833,6 +856,137 @@ describe('hunspell and the shortcut', () => {
     expect(world.toasts).toEqual([])
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'you' })
+  })
+
+  test('a hunspell run that times out skips hunspell for that check only', async ($, on) => {
+    let hunspellRuns = 0
+    const slowOnce: Process = (argv, stdin) => {
+      if (argv[0] === 'hunspell') {
+        hunspellRuns += 1
+        if (hunspellRuns === 1) {
+          return 'timeout'
+        }
+      }
+      return macAndHunspell()(argv, stdin)
+    }
+    const world = setup(on, slowOnce, 'whaat do youu think')
+    await startAndCheck($, world)
+    await world.clock.advance(5000)
+    await startAndCheck($, world)
+
+    expect(world.programs).toEqual([
+      'osascript',
+      'hunspell',
+      'osascript',
+      'hunspell',
+    ])
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await band.find({ type: 'Text', text: /2 typos/ })).toBeDefined()
+  })
+
+  test('a hunspell that is too slow 3 checks in a row is turned off', async ($, on) => {
+    const alwaysSlow: Process = (argv, stdin) =>
+      argv[0] === 'hunspell' ? 'timeout' : macAndHunspell()(argv, stdin)
+    const world = setup(on, alwaysSlow, 'whaat do youu think')
+    for (let check = 0; check < 4; check++) {
+      await startAndCheck($, world)
+      await world.clock.advance(5000)
+    }
+
+    expect(world.programs.filter(p => p === 'hunspell')).toHaveLength(3)
+    expect(world.programs.filter(p => p === 'osascript')).toHaveLength(4)
+  })
+
+  test('a hunspell that is slow only now and then stays on', async ($, on) => {
+    let hunspellRuns = 0
+    const slowEveryOther: Process = (argv, stdin) => {
+      if (argv[0] === 'hunspell') {
+        hunspellRuns += 1
+        if (hunspellRuns % 2 === 1) {
+          return 'timeout'
+        }
+      }
+      return macAndHunspell()(argv, stdin)
+    }
+    const world = setup(on, slowEveryOther, 'whaat do youu think')
+    for (let check = 0; check < 6; check++) {
+      await startAndCheck($, world)
+      await world.clock.advance(5000)
+    }
+
+    expect(world.programs.filter(p => p === 'hunspell')).toHaveLength(6)
+  })
+
+  test('two aborted hunspell runs after it has answered keep hunspell on', async ($, on) => {
+    let hunspellRuns = 0
+    const abortedLater: Process = (argv, stdin) => {
+      if (argv[0] === 'hunspell') {
+        hunspellRuns += 1
+        if (hunspellRuns === 2 || hunspellRuns === 3) {
+          return 'aborted'
+        }
+      }
+      return macAndHunspell()(argv, stdin)
+    }
+    const world = setup(on, abortedLater, 'whaat do youu think')
+    await startAndCheck($, world)
+    await startAndCheck($, world)
+    await startAndCheck($, world)
+
+    expect(world.programs.filter(p => p === 'hunspell')).toHaveLength(4)
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await band.find({ type: 'Text', text: /2 typos/ })).toBeDefined()
+  })
+
+  test('a shortcut added during the session shows in the header after the next check', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(
+        { word: 'teh', choices: ['the'] },
+        { word: 'wiht', choices: ['with'] },
+      ),
+      'fix teh bug wiht tests',
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+    world.keybindings = JSON.stringify({
+      bindings: [
+        { context: 'Chat', bindings: { 'ctrl+space': 'abovePrompt:focus' } },
+      ],
+    })
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    await world.clock.advance(400)
+    expect(
+      await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
+    ).toBeDefined()
+  })
+
+  test('a keybindings file that cannot be read keeps the key shown so far', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(
+        { word: 'teh', choices: ['the'] },
+        { word: 'wiht', choices: ['with'] },
+      ),
+      'fix teh bug wiht tests',
+    )
+    world.cursor = 0
+    world.keybindings = JSON.stringify({
+      bindings: [
+        { context: 'Chat', bindings: { 'ctrl+space': 'abovePrompt:focus' } },
+      ],
+    })
+    await startAndCheck($, world)
+    world.keybindings = undefined
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    await world.clock.advance(400)
+    expect(
+      await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
+    ).toBeDefined()
   })
 
   test('each fix gets its own letter, and the header names your shortcut', async ($, on) => {
@@ -1054,6 +1208,24 @@ describe('rephrase', () => {
       args: 'He go to store',
     })
     expect(answer.text).toBe('Haiku could not run (the haiku model is blocked)')
+  })
+
+  test('Try again after a failed /rephrase asks Haiku again with the same text', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    world.replies = ['refused', ANSWER]
+    await startAndCheck($, world)
+
+    await $.command.run({
+      ...TYPED,
+      command: 'rephrase',
+      args: 'He go to the store',
+    })
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'rephrase' })
+    expect(world.prompts).toHaveLength(2)
+    expect(world.prompts[1]).toBe(world.prompts[0])
+    expect(world.prompts[1]).toContain('He go to the store')
+    expect(await band.find({ key: 'rewrite-1' })).toBeDefined()
   })
 
   test('a draft that changed before the pick gives a toast and no fill', async ($, on) => {

@@ -7,7 +7,7 @@ in a second language.
 - **Live check.** When you stop typing for 0.4 seconds, the mod checks the draft
   with your computer's spell checker. Each mistake gets an underline (your
   theme's error color for spelling, its warning color for grammar). A band above
-  the prompt lists every mistake with its fixes. It never blocks Enter.
+  the prompt lists the mistakes with their fixes. It never blocks Enter.
 - **Rephrase with Haiku, only when you ask.** Press `r` in the band, or run
   `/rephrase <text>`. Haiku writes 3 versions of the whole draft: **fixed**
   (only spelling and grammar), **natural** (how a native speaker would say it)
@@ -41,7 +41,7 @@ aside and the fixes appear directly above the prompt. The word they fix is bold:
 | Enter | With no fix highlighted, send the prompt as it is; else use that fix |
 
 **2. With the cursor anywhere: the band shortcut, then a letter.** The band
-lists every mistake, and each fix has its own letter:
+lists up to 8 mistakes, and each of the first 22 fixes gets its own letter:
 
 ![The band lists whaat with a: what and b: wheat, and youu with c: you, d: your and e: yous](media/band.png)
 
@@ -83,9 +83,9 @@ the band's focus action:
 }
 ```
 
-If the file already has a `bindings` list, add the block to it. The band's
-header then names your key (`ctrl+space, then a letter`), and ctrl+x tab keeps
-working too.
+If the file already has a `bindings` list, add the block to it. From the next
+check on, the band's header names your key (`ctrl+space, then a letter`), and
+ctrl+x tab keeps working too.
 
 Pick a key that nothing else on your computer uses. If you type in more than one
 language on macOS, check System Settings > Keyboard > Keyboard Shortcuts > Input
@@ -114,19 +114,20 @@ setting can stay off; typofix underlines on its own.
 
 If hunspell or the dictionary is missing, typofix stops asking it for the rest
 of the session and macOS checks alone, with no message (the debug log says why).
+A hunspell run that is too slow only skips hunspell for that check; after 3 slow
+runs in a row, typofix stops asking it too.
 
 ## Settings
 
-| Option     | Default | What it does                                                                                                                         |
-| :--------- | :------ | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `language` | empty   | The macOS spelling language, such as `en` or `de`. Empty means the spell checker detects the language itself                         |
-| `hunspell` | `en_US` | The hunspell dictionary, such as `en_US` or `en_GB`. It checks only drafts in its language. Empty means typofix doesn't use hunspell |
+| Option     | Default | What it does                                                                                                                                                                    |
+| :--------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `language` | empty   | The spelling language, such as `en_US` or `de_DE`. On macOS, empty means the spell checker detects the language itself. On Linux, it names the enchant-2 or hunspell dictionary |
+| `hunspell` | `en_US` | macOS only: the dictionary of the second checker, such as `en_US` or `en_GB`. It checks only drafts in its language. Empty means typofix doesn't use hunspell                   |
 
 Change them in `/config` or with `/plugin configure typofix`.
 
-On macOS, automatic detection can miss typos in a very short draft: in
-`I recieve teh typos` it found `recieve` but not `teh`, while `language: en`
-found both. If you write in one language, set it.
+On macOS, automatic detection can miss typos in a very short draft. If you write
+in one language, set it.
 
 ## Platforms
 

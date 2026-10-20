@@ -59,6 +59,8 @@ interface Live {
   hiddenFor: string | undefined
   checkTimer: Timer | undefined
   backend: Backend | null | undefined
+  knownPrograms: Set<string>
+  hunspellMisses: number
   hasWarned: boolean
   rephrase: Rephrase['status']
   rephraseFrom: RephraseFrom
@@ -68,6 +70,8 @@ interface Live {
 
 const CHECK_DELAY_MS = 400
 const SPELL_TIMEOUT_MS = 5000
+const MAX_HUNSPELL_MISSES = 3
+const ENGINE_OP = /^\$\.[\w.]+(?:\([^)]*\))?:? /
 const TIMER_SLACK_MS = 500
 const TYPEAHEAD_WAIT_MS = 2000
 const TYPEAHEAD_POLL_MS = 100
@@ -77,7 +81,7 @@ const IGNORED_KEY = 'ignored'
 const REWRITE_LABELS = ['fixed', 'natural', 'short']
 const IDLE: Rephrase = { status: 'idle' }
 const NO_BACKEND =
-  'no spell checker found (Linux: install enchant-2 or hunspell). /rephrase still works.'
+  'no spell checker or dictionary found (Linux: install enchant-2 or hunspell and a dictionary such as en_US). /rephrase still works.'
 const SCRIPT_WARNING = 'typofix:'
 
 const issues = atom({ plugin: 'typofix', key: 'issues' } as const, [])
@@ -159,6 +163,8 @@ const live: Live = {
   hiddenFor: undefined,
   checkTimer: undefined,
   backend: undefined,
+  knownPrograms: new Set(),
+  hunspellMisses: 0,
   hasWarned: false,
   rephrase: 'idle',
   rephraseFrom: 'band',
@@ -292,6 +298,7 @@ async function runSpellCheck(
   if (snapshot !== undefined && text !== snapshot) {
     return
   }
+  await readShortcut($)
   if (text !== live.draftText) {
     live.spans = shiftSpans(live.spans, diffSplice(live.draftText, text), text)
     live.draftText = text
@@ -432,14 +439,25 @@ async function withExtra(
     return found.spans
   }
   const extra = await runBackend($, extraBackend(live.hunspell), text)
-  if (extra === 'unavailable' || extra === undefined) {
+  if (extra === undefined) {
+    live.hunspellMisses += 1
+  }
+  if (extra === 'unavailable' || live.hunspellMisses >= MAX_HUNSPELL_MISSES) {
     $.ui.log(
-      `typofix: hunspell -d ${live.hunspell} did not answer; macOS alone checks now`,
+      `typofix: hunspell -d ${live.hunspell} is missing or too slow; macOS alone checks now`,
       { to: 'debug' },
     )
     live.hunspell = undefined
     return found.spans
   }
+  if (extra === undefined) {
+    $.ui.log(
+      `typofix: hunspell -d ${live.hunspell} did not answer; macOS alone checks this draft`,
+      { to: 'debug' },
+    )
+    return found.spans
+  }
+  live.hunspellMisses = 0
   return mergeSpans(found.spans, extra.spans)
 }
 
@@ -469,6 +487,7 @@ async function runBackend(
       { to: 'debug' },
     )
     if (hasStarted) {
+      live.knownPrograms.add(backend.name)
       return undefined
     }
     // Claude Code also aborts a run when it cancels the hook call that set the
@@ -478,7 +497,7 @@ async function runBackend(
     if (willRetry) {
       return runBackend($, backend, text, true)
     }
-    return live.backend === backend ? undefined : 'unavailable'
+    return live.knownPrograms.has(backend.name) ? undefined : 'unavailable'
   }
 
   if (ran.exitCode !== 0 && ran.stdout.trim() === '') {
@@ -490,6 +509,7 @@ async function runBackend(
     )
     return 'unavailable'
   }
+  live.knownPrograms.add(backend.name)
 
   const warning = ran.stderr
     .split('\n')
@@ -570,13 +590,7 @@ async function askHaiku(
       { signal },
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // Claude Code words a refused call as `<plugin>: $.model.complete: <reason>`.
-    const enginePrefix = `${$.plugin.name}: $.model.complete: `
-    const reason = message.startsWith(enginePrefix)
-      ? message.slice(enginePrefix.length)
-      : message
-    return `Haiku could not run (${reason})`
+    return `Haiku could not run (${reasonOf(error, $.plugin.name)})`
   }
   const elapsedMs = (await $.clock.now()) - startedAt
   $.ui.log(
@@ -605,6 +619,26 @@ async function rephraseDraft($: EngineInterface): Promise<void> {
     return
   }
   await runRephrase($, text, 'band')
+}
+
+async function retryRephrase($: EngineInterface): Promise<void> {
+  await runRephrase($, live.rephraseSource, live.rephraseFrom)
+}
+
+function press($: EngineInterface, action: Promise<void>): void {
+  action.catch((error: unknown) => {
+    $.ui.log(`typofix: a band key failed: ${String(error)}`, { to: 'debug' })
+    $.ui.toast(`that did not work: ${reasonOf(error, $.plugin.name)}`)
+  })
+}
+
+// Claude Code words a refused call as `<plugin>: $.<op>: <reason>`.
+function reasonOf(error: unknown, plugin: string): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const rest = message.startsWith(`${plugin}: `)
+    ? message.slice(plugin.length + 2)
+    : message
+  return rest.replace(ENGINE_OP, '')
 }
 
 async function pickChoice(
@@ -683,7 +717,7 @@ async function readShortcut($: EngineInterface): Promise<void> {
       await $.fs.read(`${configDir}/keybindings.json`),
     )
   } catch {
-    live.shortcut = focusShortcut(undefined)
+    // A failed read keeps the key shown so far, which starts as the default.
   }
 }
 
@@ -839,7 +873,9 @@ export const register: Register = (on, options) => {
               key="cancel"
               hotkey="x"
               plain
-              onPress={() => void cancelRephrase($)}
+              onPress={() => {
+                press($, cancelRephrase($))
+              }}
             >
               Cancel
             </Button>
@@ -858,7 +894,9 @@ export const register: Register = (on, options) => {
               key="rephrase"
               hotkey="r"
               plain
-              onPress={() => void rephraseDraft($)}
+              onPress={() => {
+                press($, retryRephrase($))
+              }}
             >
               Try again
             </Button>
@@ -866,7 +904,9 @@ export const register: Register = (on, options) => {
               key="cancel"
               hotkey="x"
               plain
-              onPress={() => void cancelRephrase($)}
+              onPress={() => {
+                press($, cancelRephrase($))
+              }}
             >
               Close
             </Button>
@@ -884,7 +924,9 @@ export const register: Register = (on, options) => {
               key={`rewrite-${String(i + 1)}`}
               hotkey={String(i + 1)}
               plain
-              onPress={() => void pickRewrite($, rewrite)}
+              onPress={() => {
+                press($, pickRewrite($, rewrite))
+              }}
             >
               <Text dimColor>{REWRITE_LABELS[i] ?? ''}:</Text> {rewrite}
             </Button>
@@ -893,7 +935,9 @@ export const register: Register = (on, options) => {
             key="cancel"
             hotkey="x"
             plain
-            onPress={() => void cancelRephrase($)}
+            onPress={() => {
+              press($, cancelRephrase($))
+            }}
           >
             Cancel
           </Button>
@@ -921,7 +965,9 @@ export const register: Register = (on, options) => {
             hotkey="r"
             plain
             dimColor
-            onPress={() => void rephraseDraft($)}
+            onPress={() => {
+              press($, rephraseDraft($))
+            }}
           >
             Rephrase
           </Button>
@@ -953,7 +999,9 @@ export const register: Register = (on, options) => {
                   key={`fix-${String(row + 1)}-${String(n + 1)}`}
                   {...(hotkey === undefined ? {} : { hotkey })}
                   plain
-                  onPress={() => void pickChoice($, issue.id, choice)}
+                  onPress={() => {
+                    press($, pickChoice($, issue.id, choice))
+                  }}
                 >
                   {choice}
                 </Button>
@@ -964,7 +1012,9 @@ export const register: Register = (on, options) => {
                 key={`ignore-${String(row + 1)}`}
                 plain
                 dimColor
-                onPress={() => void ignoreWord($, issue.original)}
+                onPress={() => {
+                  press($, ignoreWord($, issue.original))
+                }}
               >
                 ignore
               </Button>
@@ -981,7 +1031,9 @@ export const register: Register = (on, options) => {
             key="rephrase"
             hotkey="r"
             plain
-            onPress={() => void rephraseDraft($)}
+            onPress={() => {
+              press($, rephraseDraft($))
+            }}
           >
             Rephrase
           </Button>
@@ -989,7 +1041,9 @@ export const register: Register = (on, options) => {
             key="hide"
             hotkey="x"
             plain
-            onPress={() => void hideIssues($)}
+            onPress={() => {
+              press($, hideIssues($))
+            }}
           >
             Hide
           </Button>

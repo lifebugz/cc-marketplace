@@ -10,7 +10,7 @@
     "language": {
       "type": "string",
       "title": "Spelling language",
-      "description": "A language code such as en_US or de. Leave empty to detect the language automatically.",
+      "description": "A language or dictionary name such as en_US or de_DE. On macOS, leave empty to detect the language automatically. On Linux, it picks the enchant-2 or hunspell dictionary.",
       "default": ""
     },
     "hunspell": {
