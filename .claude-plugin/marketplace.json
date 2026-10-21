@@ -13,6 +13,11 @@
       "description": "Git workflow skills - ship (commit + push + PR) and merge (merge the PR + clean up)."
     },
     {
+      "name": "typofix",
+      "source": "./plugins/typofix",
+      "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask."
+    },
+    {
       "name": "mermaid",
       "description": "Unofficial Mermaid diagram plugin: draft, validate, render, and generate diagrams from code, dependencies and git history.",
       "author": {
