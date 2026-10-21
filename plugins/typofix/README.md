@@ -190,4 +190,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.305 on macOS.
+Tested with Claude Code 2.1.307 on macOS.
