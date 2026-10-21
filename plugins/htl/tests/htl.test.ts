@@ -5,7 +5,7 @@ import type {
   RegisteredToolSpec,
   UiPane,
 } from 'claude-code'
-import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
+import { describe, expect, test, type Engine } from 'claude-code/testing'
 
 const TOOL = 'mcp__htl__assign_task'
 const SURFACES = ['terminal', 'desktop'] as const
@@ -68,7 +68,7 @@ interface World {
   armedAtSubmit: boolean[]
 }
 
-function setup(on: On, env: Record<string, string> = {}): World {
+function setup(on: On): World {
   const world: World = {
     tools: [],
     commands: [],
@@ -87,7 +87,6 @@ function setup(on: On, env: Record<string, string> = {}): World {
     isArmed: false,
     armedAtSubmit: [],
   }
-  mock.env(on, env)
   on('session.start', () => ({ cwd: '/work' }))
   on('tool.register', (_$, e) => {
     world.tools.push(e)
@@ -264,23 +263,11 @@ describe('the tool', () => {
     expect(world.commands).toEqual(['htl'])
   })
 
-  test('a -p run without EVAL_HTL gets no tool, but still /htl', async ($, on) => {
+  test('a -p run gets no tool, but still /htl', async ($, on) => {
     const world = setup(on)
     await start($, false)
     expect(world.tools).toHaveLength(0)
     expect(world.commands).toEqual(['htl'])
-  })
-
-  test('a -p run with EVAL_HTL=1 gets the tool', async ($, on) => {
-    const world = setup(on, { EVAL_HTL: '1' })
-    await start($, false)
-    expect(world.tools).toHaveLength(1)
-  })
-
-  test('EVAL_HTL with another value does not switch it on', async ($, on) => {
-    const world = setup(on, { EVAL_HTL: 'yes' })
-    await start($, false)
-    expect(world.tools).toHaveLength(0)
   })
 
   test(

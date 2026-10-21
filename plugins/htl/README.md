@@ -144,7 +144,7 @@ Claude never feeds a password into `sudo` or a login prompt, even from
 - On the Claude mobile app the pane has no text field, so an answer goes
   without a message.
 - In a `claude -p` run or the Agent SDK, nobody is at the pane, so the tool is
-  not registered at all (except for evals, below).
+  not registered at all.
 - Tasks live in the session's memory. They survive a reload of the mod, but
   `claude --resume` or `--continue` starts with no open tasks: numbers start
   again at #1, and earlier rejections are forgotten.
@@ -171,45 +171,3 @@ The type-check reads the mod API types from `.claude-types/` at the root, which
 leaves out the generated `claude-code-mcp` types on purpose: they list the MCP
 servers connected on your machine, and with them the matcher
 `{ tool: 'mcp__htl__assign_task' }` stops type-checking.
-
-### Evals
-
-`plugins/htl/evals/` holds 29 model-behavior evals. They make real model calls
-on your account.
-
-- **13 should assign**: a 2FA login, a CAPTCHA sign-up, a sudo password, a
-  board to plug in, a YubiKey touch, a paid plan, a legal agreement, a GUI-only
-  macOS setting, a server behind a VPN, a DNS change in parallel mode, a `now`
-  task where Claude must stop, and two secrets that are not in 1Password yet.
-  Most check the `blocker` and `mode` too, and that the mod did not refuse the
-  first call.
-- **13 must not assign**: a rename, a failing test it can fix, a `.gitignore`,
-  a placeholder in `.env.example`, two secrets that are already in 1Password, a
-  random secret, a commit, a question about a script, a design choice, a request
-  with no facts, a job the user said they would do, and a typo in a path.
-- **3 after the user answers**: each resumes a recorded run where Claude
-  assigned a task, and sends the exact Accept, Reject or "You can do this" text
-  the pane would send.
-
-```bash
-bun run eval:htl
-```
-
-It runs as one process with `-j 4`. Several eval processes at once made runs
-fail with "OAuth token revoked".
-
-The three `history.jsonl` files were recorded by eval runs themselves (with
-`--keep-temp`), not in a personal session. A session file holds the account's
-email and home paths, so only the user and assistant messages were kept and the
-file owner's name in `ls -la` output was replaced. A resumed case also writes
-its whole new session next to `history.jsonl`; `.gitignore` keeps those out.
-
-**The `EVAL_HTL` switch.** Eval runs are non-interactive `claude -p` children,
-and the mod registers its tool only in interactive sessions. Each case sets
-`EVAL_HTL=1` in its `env`, and the mod also registers the tool when it reads
-`EVAL_HTL=1`. This is the only way to see the tool outside an interactive
-session, and it exists for the evals.
-
-The evals run on macOS inside the eval sandbox, which blocks the network and
-the 1Password app, so no case needs `op` to succeed: the 1Password cases grade
-what Claude wrote.

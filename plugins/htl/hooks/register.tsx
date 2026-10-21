@@ -267,8 +267,7 @@ export const register: Register = (on, options) => {
   const secrets = secretsMode(options['secrets'])
 
   on('session.start', async ($, e, next) => {
-    const isEval = (await $.env.get('EVAL_HTL')) === '1'
-    if (e.isInteractive || isEval) {
+    if (e.isInteractive) {
       try {
         await $.tool.register({
           name: TOOL_NAME,
