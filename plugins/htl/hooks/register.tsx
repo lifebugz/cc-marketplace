@@ -6,6 +6,7 @@ import {
   SUBAGENT_REFUSAL,
   TOOL,
   TOOL_NAME,
+  answersTasks,
   assignedText,
   assignedToast,
   blockerLabel,
@@ -16,6 +17,7 @@ import {
   decisionToast,
   gateDenial,
   inputSchema,
+  notSentToast,
   parseRequest,
   refusalText,
   reminderLine,
@@ -36,6 +38,13 @@ const nextId = atom({ plugin: 'htl', key: 'nextId' } as const, 1)
 const view = atom({ plugin: 'htl', key: 'view' } as const, FIRST_CARD)
 
 let queue: Promise<unknown> = Promise.resolve()
+let gateLifts = 0
+
+interface Committed {
+  readonly task: HtlTask
+  readonly armed: readonly number[]
+  readonly lifts: number
+}
 
 async function serial<T>(work: () => Promise<T>): Promise<T> {
   const job = queue.then(work, work)
@@ -49,6 +58,11 @@ function messageOf(error: unknown): string {
 
 function logError($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`htl: ${what}: ${messageOf(error)}`, { to: 'debug' })
+}
+
+async function isPanePlaced($: EngineInterface): Promise<boolean> {
+  const panes = await $.ui.panes()
+  return panes.some(pane => pane.id === PANE && pane.isPlaced)
 }
 
 function showStatus(
@@ -105,53 +119,110 @@ async function assign(
   return assignedText(task)
 }
 
-async function disarm($: EngineInterface): Promise<readonly HtlTask[]> {
-  const open = await read($, tasks)
-  if (!open.some(task => task.isArmed)) {
-    return open
-  }
-  return update($, tasks, list =>
-    list.map(task => (task.isArmed ? { ...task, isArmed: false } : task)),
-  )
+function lifted(task: HtlTask): HtlTask {
+  return task.isArmed ? { ...task, isArmed: false } : task
 }
 
+// Writes even when nothing is armed: a rollback's re-arm racing this prompt
+// then misses its version and re-reads gateLifts, instead of landing after it.
+async function disarm($: EngineInterface): Promise<readonly HtlTask[]> {
+  gateLifts += 1
+  return update($, tasks, list => list.map(lifted))
+}
+
+async function commit(
+  $: EngineInterface,
+  taskId: number,
+  decision: Decision,
+): Promise<Committed | undefined> {
+  const task = (await read($, tasks)).find(one => one.id === taskId)
+  if (task === undefined) {
+    return undefined
+  }
+
+  gateLifts += 1
+  const lifts = gateLifts
+  let armed: readonly number[] = []
+  const remaining = await update($, tasks, list => {
+    armed = list.filter(one => one.isArmed).map(one => one.id)
+    return list.filter(one => one.id !== taskId).map(lifted)
+  })
+  await update($, closed, list =>
+    [...list, { id: task.id, title: task.title, decision }].slice(-MAX_CLOSED),
+  )
+  await update($, view, () => FIRST_CARD)
+
+  if (remaining.length > 0) {
+    showStatus($, await isPanePlaced($), remaining.length)
+  } else {
+    $.ui.status(undefined)
+    await $.ui.close({ id: PANE })
+  }
+  return { task, armed, lifts }
+}
+
+async function deliver(
+  $: EngineInterface,
+  text: string,
+): Promise<string | undefined> {
+  try {
+    const entered = await $.prompt.submit({ text, asUser: true })
+    return entered.drop
+  } catch (error) {
+    return messageOf(error)
+  }
+}
+
+async function rollback(
+  $: EngineInterface,
+  { task, armed, lifts }: Committed,
+): Promise<void> {
+  const open = await update($, tasks, list => {
+    const back = list.some(one => one.id === task.id)
+      ? list
+      : [
+          ...list.filter(one => one.id < task.id),
+          { ...task, isArmed: false },
+          ...list.filter(one => one.id > task.id),
+        ]
+    if (gateLifts !== lifts) {
+      return back
+    }
+    return back.map(one =>
+      armed.includes(one.id) ? { ...one, isArmed: true } : one,
+    )
+  })
+  await update($, closed, list => list.filter(one => one.id !== task.id))
+  await update($, view, (current): View =>
+    current.step === 'decide' && current.taskId === null
+      ? { step: 'decide', taskId: task.id }
+      : current,
+  )
+  showStatus($, await isPanePlaced($), open.length)
+  $.ui.toast(notSentToast(task))
+}
+
+// Not one serial job: $.prompt.submit resolves only once the answer's turn
+// starts, and an assign_task hook waiting on the queue meanwhile would spend
+// its own 10 s budget.
 async function decide(
   $: EngineInterface,
   taskId: number,
   decision: Decision,
   message: string,
 ): Promise<void> {
-  const open = await read($, tasks)
-  const task = open.find(one => one.id === taskId)
-  if (task === undefined) {
+  const committed = await serial(async () => commit($, taskId, decision))
+  if (committed === undefined) {
     return
   }
-
-  const remaining = await update($, tasks, list =>
-    list
-      .filter(one => one.id !== taskId)
-      .map(one => (one.isArmed ? { ...one, isArmed: false } : one)),
-  )
-  await update($, closed, list =>
-    [...list, { id: task.id, title: task.title, decision }].slice(-MAX_CLOSED),
-  )
-  await update($, view, () => FIRST_CARD)
-
-  $.prompt
-    .submit({ text: decisionPrompt(task, decision, message), asUser: true })
-    .catch((error: unknown) => {
-      logError($, 'the answer was not sent', error)
-    })
-  $.ui.toast(decisionToast(task, decision))
-
-  if (remaining.length > 0) {
-    const panes = await $.ui.panes()
-    const isPlaced = panes.some(pane => pane.id === PANE && pane.isPlaced)
-    showStatus($, isPlaced, remaining.length)
+  const { task } = committed
+  const failure = await deliver($, decisionPrompt(task, decision, message))
+  if (failure === undefined) {
+    $.ui.toast(decisionToast(task, decision))
     return
   }
-  $.ui.status(undefined)
-  await $.ui.close({ id: PANE })
+  logError($, `the answer to task #${String(task.id)} was not sent`, failure)
+  await serial(async () => rollback($, committed))
 }
 
 async function pickDecision(
@@ -212,12 +283,7 @@ export const register: Register = (on, options) => {
 
     const open = await read($, tasks)
     if (open.length > 0) {
-      const panes = await $.ui.panes()
-      showStatus(
-        $,
-        panes.some(pane => pane.id === PANE && pane.isPlaced),
-        open.length,
-      )
+      showStatus($, await isPanePlaced($), open.length)
     }
 
     try {
@@ -242,7 +308,11 @@ export const register: Register = (on, options) => {
   }))
 
   on('tool.call', async ($, e, next) => {
-    if (e.tool === TOOL || e.agentId !== undefined) {
+    if (
+      e.tool === TOOL ||
+      e.agentId !== undefined ||
+      next.origin.plugin !== 'engine'
+    ) {
       return next(e)
     }
     const armed = (await read($, tasks)).find(task => task.isArmed)
@@ -253,7 +323,9 @@ export const register: Register = (on, options) => {
   }).catch(async (_$, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {
-    const open = await disarm($)
+    const open = answersTasks(e.origin.kind)
+      ? await disarm($)
+      : await read($, tasks)
     if (open.length === 0) {
       return next(e)
     }
@@ -326,9 +398,9 @@ export const register: Register = (on, options) => {
     if (current.step === 'message' && current.taskId === task.id) {
       const { decision } = current
       const send = (value: string): void => {
-        run($, 'the decision failed', async () =>
-          decide($, task.id, decision, value),
-        )
+        decide($, task.id, decision, value).catch((error: unknown) => {
+          logError($, 'the decision failed', error)
+        })
       }
       return (
         <Box flexDirection="column" rowGap={1}>

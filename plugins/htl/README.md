@@ -12,7 +12,7 @@ code), so it hands it over and waits. You log in, press `a` (Accept), add a
 message, and press Enter. Claude checks that the login worked, then deploys.
 (The demo uses a stand-in `fly` command, so nothing was really deployed.)
 
-Tested with Claude Code 2.1.296.
+Tested with Claude Code 2.1.305.
 
 ## Install
 
@@ -69,7 +69,12 @@ so it never steals keys while you type. If it does not have the keys, press
 Claude picks a mode for each task:
 
 - **now**: Claude's next step needs the result. Claude ends its turn and waits.
-  Until you answer, the mod refuses any other tool call in that turn.
+  Until you answer, the mod refuses Claude's other tool calls. What lifts this
+  is your answer in the pane, or a prompt you type in Claude Code or send
+  through Remote Control. Other messages do not: a background task's
+  notification, a schedule, another session, or a chat channel an MCP server
+  relays. If tool calls stay refused, answer in `/htl`. Only Claude's own tool
+  calls wait; other mods' tool calls still run.
 - **parallel**: Claude keeps doing work that does not depend on the task, then
   ends its turn and says it is waiting for it.
 
@@ -140,8 +145,12 @@ Claude never feeds a password into `sudo` or a login prompt, even from
   without a message.
 - In a `claude -p` run or the Agent SDK, nobody is at the pane, so the tool is
   not registered at all (except for evals, below).
-- Tasks live in the session's memory. They survive a reload of the mod, not a
-  new session.
+- Tasks live in the session's memory. They survive a reload of the mod, but
+  `claude --resume` or `--continue` starts with no open tasks: numbers start
+  again at #1, and earlier rejections are forgotten.
+- If Claude Code does not take your answer (for example, another mod's hook
+  refuses it), the task stays open and a toast says so. Answer it again in
+  `/htl`.
 - The engine never runs a mod's own hook for an event the mod itself raised. So
   the answer the pane sends gets no "open tasks" line, and the pane's own
   handler (not the `prompt.submit` hook) lifts the `now` gate.

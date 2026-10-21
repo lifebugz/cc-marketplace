@@ -1,8 +1,10 @@
+import type { PromptOrigin } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { ClosedTask, HtlRequest, HtlTask } from '../types'
 import {
   MAX_OPEN,
+  answersTasks,
   assignedText,
   cardHeader,
   contextLine,
@@ -46,6 +48,29 @@ const task = (id: number, request: HtlRequest = LOGIN): HtlTask => ({
 })
 
 const EMPTY = { open: [], closed: [], secrets: '1password' } as const
+
+const ANSWERS: Readonly<Record<PromptOrigin['kind'], boolean>> = {
+  composer: true,
+  bridge: true,
+  sdk: true,
+  'slack-ping': true,
+  'task-notification': false,
+  'scheduled-trigger': false,
+  peer: false,
+  'peer-send-message': false,
+  'projects-relay': false,
+  channel: false,
+  coordinator: false,
+  observer: false,
+  'observer-activity': false,
+  'auto-continuation': false,
+  unclassified: false,
+  plugin: false,
+}
+
+function isKind(value: string): value is PromptOrigin['kind'] {
+  return value in ANSWERS
+}
 
 const without = (field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(LOGIN).filter(([key]) => key !== field))
@@ -192,7 +217,7 @@ describe('validateRequest', () => {
     const NO_EVIDENCE =
       'Not assigned. Your secrets are in 1Password. Reference the secret as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
     const NO_REFERENCE =
-      'Not assigned. Your secrets are in 1Password. In `steps`, name the exact reference the user should save the new secret under, as `op://<vault>/<item>/<field>`, then call mcp__htl__assign_task again.'
+      'Not assigned. Your secrets are in 1Password. In `steps`, name the exact reference the user should save the new secret under, as `op://<vault>/<item>/<field>` with the real vault, item and field names, then call mcp__htl__assign_task again.'
 
     test('a secret task that names 1Password and an op:// reference is allowed', () => {
       expect(validateRequest(SECRET, EMPTY)).toBeUndefined()
@@ -225,6 +250,15 @@ describe('validateRequest', () => {
       ).toBe(NO_REFERENCE)
     })
 
+    test('the op://<vault>/<item>/<field> placeholder is refused', () => {
+      expect(
+        validateRequest(
+          { ...SECRET, steps: 'Save it as `op://<vault>/<item>/<field>`.' },
+          EMPTY,
+        ),
+      ).toBe(NO_REFERENCE)
+    })
+
     test('vault, item and field names may hold spaces', () => {
       expect(
         validateRequest(
@@ -249,6 +283,16 @@ describe('validateRequest', () => {
     test('other blockers need no 1Password evidence', () => {
       expect(validateRequest(LOGIN, EMPTY)).toBeUndefined()
     })
+  })
+})
+
+describe('answersTasks', () => {
+  test('only what the user sends lifts the gate', () => {
+    expect(
+      Object.keys(ANSWERS)
+        .filter(isKind)
+        .map(kind => [kind, answersTasks(kind)]),
+    ).toEqual(Object.entries(ANSWERS))
   })
 })
 

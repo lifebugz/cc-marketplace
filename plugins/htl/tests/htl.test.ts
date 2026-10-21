@@ -61,6 +61,11 @@ interface World {
   ran: string[]
   isPlaced: boolean
   isOpenRefused: boolean
+  dropSubmit: { readonly task: number; readonly reason: string } | undefined
+  holdSubmit: Promise<void> | undefined
+  arrivals: (() => void)[]
+  isArmed: boolean
+  armedAtSubmit: boolean[]
 }
 
 function setup(on: On, env: Record<string, string> = {}): World {
@@ -76,6 +81,11 @@ function setup(on: On, env: Record<string, string> = {}): World {
     ran: [],
     isPlaced: true,
     isOpenRefused: false,
+    dropSubmit: undefined,
+    holdSubmit: undefined,
+    arrivals: [],
+    isArmed: false,
+    armedAtSubmit: [],
   }
   mock.env(on, env)
   on('session.start', () => ({ cwd: '/work' }))
@@ -129,12 +139,31 @@ function setup(on: On, env: Record<string, string> = {}): World {
     world.logs.push(e.text)
     return { value: undefined }
   })
-  on('prompt.submit', (_$, e) => {
+  on('state.set', { plugin: 'htl', key: 'tasks' }, async (_$, e, next) => {
+    world.isArmed = e.value.some(task => task.isArmed)
+    return next(e)
+  })
+  on('prompt.submit', async (_$, e) => {
+    world.armedAtSubmit.push(world.isArmed)
     world.submitted.push({
       text: e.text,
       context: e.context ?? [],
       origin: e.origin,
     })
+    for (const arrived of world.arrivals.splice(0)) {
+      arrived()
+    }
+    if (e.origin.kind !== 'plugin') {
+      return { text: e.text }
+    }
+    await world.holdSubmit
+    const drop = world.dropSubmit
+    if (
+      drop !== undefined &&
+      e.text.startsWith(`HTL task #${String(drop.task)} `)
+    ) {
+      return { drop: drop.reason }
+    }
     return { text: e.text }
   })
   on('tool.call', (_$, e) => {
@@ -143,6 +172,19 @@ function setup(on: On, env: Record<string, string> = {}): World {
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   return world
+}
+
+interface Latch {
+  readonly done: Promise<void>
+  readonly open: () => void
+}
+
+function latch(): Latch {
+  let open = (): void => undefined
+  const done = new Promise<void>(resolve => {
+    open = resolve
+  })
+  return { done, open }
 }
 
 async function start($: Engine, isInteractive = true): Promise<unknown> {
@@ -288,6 +330,73 @@ describe('now mode', () => {
     expect(world.ran).toEqual(['Bash'])
   })
 
+  test('a background task notification does not lift the gate, but still reads the open tasks', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    await $.prompt.submit({
+      text: 'The background command finished.',
+      wait: false,
+      origin: { kind: 'task-notification' },
+    })
+
+    expect(world.submitted.at(-1)?.context).toEqual([
+      'Open HTL tasks waiting for the user: #1 "Log in to the GitHub CLI" (now). Don\'t assume they are done.',
+    ])
+    expect(await bash($)).toEqual({
+      deny: 'Waiting for the user to finish HTL task #1 "Log in to the GitHub CLI". End your turn now.',
+    })
+  })
+
+  test('a prompt sent through Remote Control lifts the gate', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    await $.prompt.submit({
+      text: 'any news?',
+      wait: false,
+      origin: { kind: 'bridge' },
+    })
+    expect(await bash($)).toMatchObject({ result: 'ran' })
+    expect(world.ran).toEqual(['Bash'])
+  })
+
+  test(
+    "another mod's tool calls pass the gate",
+    {
+      plugins: [
+        {
+          name: 'watcher',
+          register: (on): void => {
+            on('command.run', { command: 'watch' }, async $ => {
+              const out = await $.tool.call({ tool: 'Bash', command: 'date' })
+              return {
+                text:
+                  typeof out.result === 'string'
+                    ? out.result
+                    : (out.deny ?? 'no result'),
+              }
+            })
+          },
+        },
+      ],
+    },
+    async ($, on) => {
+      const world = setup(on)
+      await start($)
+      await assign($, LOGIN)
+      expect(
+        await $.command.run({
+          command: 'watch',
+          args: '',
+          origin: COMPOSER,
+          presentation: { isFullscreen: true, columns: 120 },
+        }),
+      ).toMatchObject({ text: 'ran' })
+      expect(world.ran).toEqual(['Bash'])
+    },
+  )
+
   test("a subagent's tool calls pass the gate", async ($, on) => {
     const world = setup(on)
     await start($)
@@ -303,6 +412,138 @@ describe('now mode', () => {
     expect(await assign($, DNS)).toMatchObject({
       result: expect.stringContaining('Assigned as task #2 (parallel)'),
     })
+  })
+})
+
+describe('sending the answer', () => {
+  test('the gate is already lifted when the answer is sent', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await pane.press({ key: 'accept' })
+    await pane.input({ key: 'message', text: '' })
+    await pane.unmount()
+    expect(world.armedAtSubmit).toEqual([false])
+  })
+
+  test('a dropped answer brings the task back with its gate', async ($, on) => {
+    const world = setup(on)
+    world.dropSubmit = { task: 1, reason: 'a hook refused it' }
+    await start($)
+    await assign($, LOGIN)
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await pane.press({ key: 'reject' })
+    await pane.input({ key: 'message', text: '' })
+
+    expect(world.toasts).toContain(
+      'htl: the answer to task #1 was not sent. Answer again in /htl.',
+    )
+    expect(world.toasts).not.toContain('htl: task #1 rejected')
+    expect(world.logs).toContain(
+      'htl: the answer to task #1 was not sent: a hook refused it',
+    )
+    expect(
+      await pane.find({ type: 'Text', text: '#1 · NOW · 1 of 1' }),
+    ).toBeDefined()
+    expect((await runHtl($)).text).toBeUndefined()
+    expect(await bash($)).toEqual({
+      deny: 'Waiting for the user to finish HTL task #1 "Log in to the GitHub CLI". End your turn now.',
+    })
+
+    world.dropSubmit = undefined
+    await pane.press({ key: 'accept' })
+    await pane.input({ key: 'message', text: '' })
+    await pane.unmount()
+    expect(world.toasts.at(-1)).toBe('htl: task #1 accepted')
+    expect(await assign($, LOGIN)).toMatchObject({
+      result: expect.stringContaining('Assigned as task #2 (now).'),
+    })
+  })
+
+  test('a prompt typed while the answer is on its way keeps the gate lifted', async ($, on) => {
+    const world = setup(on)
+    world.dropSubmit = { task: 1, reason: 'a hook refused it' }
+    const hold = latch()
+    world.holdSubmit = hold.done
+    await start($)
+    await assign($, LOGIN)
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await pane.press({ key: 'accept' })
+    const arrived = latch()
+    world.arrivals.push(arrived.open)
+    const sending = pane.input({ key: 'message', text: '' })
+    await arrived.done
+    await type($, 'any news?')
+    hold.open()
+    await sending
+
+    expect(
+      await pane.find({ type: 'Text', text: '#1 · NOW · 1 of 1' }),
+    ).toBeDefined()
+    await pane.unmount()
+    expect(await bash($)).toMatchObject({ result: 'ran' })
+  })
+
+  test('a dropped answer stays without its gate while a second answer is on its way', async ($, on) => {
+    const world = setup(on)
+    world.dropSubmit = { task: 1, reason: 'a hook refused it' }
+    const hold = latch()
+    world.holdSubmit = hold.done
+    await start($)
+    await assign($, LOGIN)
+    await assign($, DNS)
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+    await pane.press({ key: 'reject' })
+    const firstArrived = latch()
+    world.arrivals.push(firstArrived.open)
+    const first = pane.input({ key: 'message', text: '' })
+    await firstArrived.done
+    await pane.press({ key: 'accept' })
+    const secondArrived = latch()
+    world.arrivals.push(secondArrived.open)
+    const second = pane.input({ key: 'message', text: '' })
+    await secondArrived.done
+    hold.open()
+    await Promise.all([first, second])
+
+    expect(world.toasts).toContain(
+      'htl: the answer to task #1 was not sent. Answer again in /htl.',
+    )
+    expect(world.toasts).toContain('htl: task #2 accepted')
+    expect(
+      await pane.find({ type: 'Text', text: '#1 · NOW · 1 of 1' }),
+    ).toBeDefined()
+    await pane.unmount()
+    expect(await bash($)).toMatchObject({ result: 'ran' })
+  })
+
+  test('an answer on its way stalls neither assign_task nor the pane', async ($, on) => {
+    const world = setup(on)
+    const hold = latch()
+    world.holdSubmit = hold.done
+    await start($)
+    for (const n of [1, 2, 3]) {
+      await assign($, { ...DNS, title: `job ${String(n)}` })
+    }
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await pane.press({ key: 'accept' })
+    const arrived = latch()
+    world.arrivals.push(arrived.open)
+    const sending = pane.input({ key: 'message', text: '' })
+    await arrived.done
+
+    expect(await assign($, { ...DNS, title: 'job 4' })).toMatchObject({
+      result: expect.stringContaining('Assigned as task #4 (parallel).'),
+    })
+    await pane.press({ key: 'next' })
+    expect(
+      await pane.find({ type: 'Text', text: '#3 · PARALLEL · 2 of 3' }),
+    ).toBeDefined()
+    hold.open()
+    await sending
+    await pane.unmount()
   })
 })
 

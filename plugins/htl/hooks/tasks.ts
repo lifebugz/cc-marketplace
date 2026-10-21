@@ -1,3 +1,5 @@
+import type { PromptOrigin } from 'claude-code'
+
 import type {
   Blocker,
   ClosedTask,
@@ -21,6 +23,12 @@ export const BLOCKERS: readonly Blocker[] = [
   'no_access',
 ]
 export const MODES: readonly Mode[] = ['now', 'parallel']
+const ANSWERING_ORIGINS: readonly PromptOrigin['kind'][] = [
+  'composer',
+  'bridge',
+  'sdk',
+  'slack-ping',
+]
 
 const REQUIRED = ['title', 'steps', 'blocker', 'why', 'tried', 'mode'] as const
 const FIELDS: ReadonlySet<string> = new Set([...REQUIRED, 'check'])
@@ -32,7 +40,7 @@ const ENVELOPE: ReadonlySet<string> = new Set([
   'consent',
 ])
 const ONE_PASSWORD_EVIDENCE = /\bop\b|op:\/\/|1password/i
-const OP_REFERENCE = /op:\/\/[^/\n]+\/[^/\n]+\/[^/\n]+/
+const OP_REFERENCE = /op:\/\/[^/\n<>]+\/[^/\n<>]+\/[^/\n<>]+/
 
 export type Parsed =
   | { request: HtlRequest; problems?: undefined }
@@ -43,6 +51,8 @@ export interface SessionTasks {
   readonly closed: readonly ClosedTask[]
   readonly secrets: SecretsMode
 }
+
+type Refused = ClosedTask & { readonly decision: 'reject' | 'handback' }
 
 type Field<T> =
   | { readonly value: T; readonly problem?: undefined }
@@ -57,6 +67,14 @@ function isOneOf<T extends string>(
   value: unknown,
 ): value is T {
   return options.some(option => option === value)
+}
+
+function isRefused(task: ClosedTask): task is Refused {
+  return task.decision !== 'accept'
+}
+
+export function answersTasks(kind: PromptOrigin['kind']): boolean {
+  return isOneOf(ANSWERING_ORIGINS, kind)
 }
 
 function textField(
@@ -177,11 +195,11 @@ function refusalOf(
     return `Task #${String(open.id)} "${open.title}" is already open. Don't assign it twice; wait for the user.`
   }
 
-  const answered = session.closed.find(
-    task => task.decision !== 'accept' && sameTitle(task.title, request.title),
-  )
-  if (answered !== undefined) {
-    return repeatRefusal(answered)
+  const refused = session.closed
+    .filter(isRefused)
+    .find(task => sameTitle(task.title, request.title))
+  if (refused !== undefined) {
+    return repeatRefusal(refused)
   }
 
   if (session.secrets !== '1password' || request.blocker !== 'secret') {
@@ -191,20 +209,18 @@ function refusalOf(
     return 'Your secrets are in 1Password. Reference the secret as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
   }
   if (!OP_REFERENCE.test(request.steps)) {
-    return `Your secrets are in 1Password. In \`steps\`, name the exact reference the user should save the new secret under, as \`op://<vault>/<item>/<field>\`, then call ${TOOL} again.`
+    return `Your secrets are in 1Password. In \`steps\`, name the exact reference the user should save the new secret under, as \`op://<vault>/<item>/<field>\` with the real vault, item and field names, then call ${TOOL} again.`
   }
   return undefined
 }
 
-function repeatRefusal(task: ClosedTask): string {
+function repeatRefusal(task: Refused): string {
   const label = `task #${String(task.id)} "${task.title}"`
   switch (task.decision) {
     case 'reject':
       return `The user already rejected ${label}. Don't assign it again. Find another way, or tell the user what stays blocked.`
     case 'handback':
       return `The user already said you can do ${label} yourself. Do it with your own tools; don't assign it again.`
-    case 'accept':
-      return `The user already did ${label}.`
     default:
       return unreachable(task.decision)
   }
@@ -236,7 +252,7 @@ Secrets live in 1Password:
 - Use a secret through an op://<vault>/<item>/<field> reference: run the command with \`op run --env-file=<file> -- <cmd>\`, or render a config with \`op inject -i <template> -o <file>\`. A resolved file must be gitignored and deleted when you are done.
 - Never let a value reach your output: don't run \`op read\`, \`--reveal\` or \`--no-masking\` in your own shell. To check that an item exists, discard the output: \`op item get "<item>" --vault "<vault>" > /dev/null\`.
 - A 1Password Touch ID or unlock prompt is not a task: the user answers it. If \`op\` fails because 1Password is locked, not signed in, or its CLI integration is off, that is not a task either: finish the wiring and say so in one line.
-- A "secret" task is only for a secret that is missing from 1Password: "tried" says what you checked in 1Password, and the steps name the exact op:// reference to save it under, the one you will use next.`
+- A "secret" task is only for a secret that is missing from 1Password: "tried" says what you checked in 1Password, and the steps name the exact op:// reference to save it under, with the real vault, item and field names: the one you will use next.`
 
 export function toolDescription(secrets: SecretsMode): string {
   switch (secrets) {
@@ -252,7 +268,7 @@ export function toolDescription(secrets: SecretsMode): string {
 const STEPS =
   'Exact Markdown steps for the user. A shell command they should run gets a ! prefix, so they can paste it into Claude Code: `! gh auth login`.'
 const STEPS_FOR_SECRETS =
-  ' For a secret task, the steps name the exact 1Password reference to save it under: `op://<vault>/<item>/<field>`.'
+  ' For a secret task, the steps name the exact 1Password reference to save it under: `op://<vault>/<item>/<field>`, with the real vault, item and field names.'
 
 export function inputSchema(
   secrets: SecretsMode,
@@ -352,6 +368,10 @@ export function assignedToast(task: HtlTask): string {
 
 export function decisionToast(task: HtlTask, decision: Decision): string {
   return `htl: task #${String(task.id)} ${decisionPast(decision)}`
+}
+
+export function notSentToast(task: HtlTask): string {
+  return `htl: the answer to task #${String(task.id)} was not sent. Answer again in /htl.`
 }
 
 function decisionPast(decision: Decision): string {
