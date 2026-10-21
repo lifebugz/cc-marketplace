@@ -311,7 +311,7 @@ export const register: Register = (on, options) => {
         <Text dimColor>
           {cardHeader(task, at + 1, open.length, e.props.isFocused)}
         </Text>
-        <Text bold>{task.title}</Text>
+        <Text weight="semibold">{task.title}</Text>
         <Text>
           <Text color="warning">{blockerLabel(task.blocker)}:</Text> {task.why}
         </Text>
@@ -333,7 +333,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" rowGap={1}>
           {card}
-          <Text bold>
+          <Text weight="semibold">
             {decisionLabel(decision)} #{String(task.id)}. Message to Claude
             (optional)
           </Text>
