@@ -16,7 +16,7 @@
     "hunspell": {
       "type": "string",
       "title": "hunspell dictionary",
-      "description": "On macOS, hunspell also checks drafts in this dictionary's language, such as en_US or en_GB, to catch typos macOS accepts. It skips drafts in other languages. Leave empty to not use hunspell.",
+      "description": "macOS only. If hunspell is installed, it also checks drafts in this dictionary's language, such as en_US or en_GB, to catch typos macOS accepts, and skips drafts in other languages. Default en_US. Set to off to not use hunspell.",
       "default": "en_US"
     }
   }

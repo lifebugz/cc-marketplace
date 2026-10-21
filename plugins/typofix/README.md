@@ -119,10 +119,10 @@ runs in a row, typofix stops asking it too.
 
 ## Settings
 
-| Option     | Default | What it does                                                                                                                                                                    |
-| :--------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `language` | empty   | The spelling language, such as `en_US` or `de_DE`. On macOS, empty means the spell checker detects the language itself. On Linux, it names the enchant-2 or hunspell dictionary |
-| `hunspell` | `en_US` | macOS only: the dictionary of the second checker, such as `en_US` or `en_GB`. It checks only drafts in its language. Empty means typofix doesn't use hunspell                   |
+| Option     | Default | What it does                                                                                                                                                                                             |
+| :--------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `language` | empty   | The spelling language, such as `en_US` or `de_DE`. On macOS, empty means the spell checker detects the language itself. On Linux, it names the enchant-2 or hunspell dictionary                          |
+| `hunspell` | `en_US` | macOS only: the dictionary of the second checker, such as `en_US` or `en_GB`, used only when hunspell is installed. It checks only drafts in its language. `off` means typofix doesn't look for hunspell |
 
 Change them in `/config` or with `/plugin configure typofix`.
 
@@ -143,13 +143,17 @@ work.
 ## Limits
 
 - A mistake is underlined as soon as the check finds it while the cursor is at
-  the end of the draft. The word whose fixes are showing is also bold. With the
-  cursor inside the draft, the underline waits for your next key press (an arrow
-  key is enough), because marking it at once would move the cursor.
+  the end of the draft, and an underline the check no longer finds goes away at
+  once too. The word whose fixes are showing is also bold. With the cursor
+  inside the draft, both wait for your next key press (an arrow key is enough),
+  because changing the marks at once would move the cursor.
 - Claude Code decides where the suggestion list is drawn. The band steps aside so
   the fixes sit next to the prompt; it comes back when the cursor moves on.
 - A fix taken with Tab keeps the cursor where it is. A fix or an ignore from the
   band replaces the whole draft, so the cursor moves to the end.
+- Marking the draft at once replaces it, so a key or paste that lands in that
+  same moment is undone; typofix then puts it back. It does this once, so a
+  second key in the moment of the put-back can still be lost.
 - The live check runs a program on your computer, so it needs a local Claude Code:
   the terminal, or the desktop app's local Code tab.
 - Grammar checks are best effort. The macOS grammar model does not flag the same
@@ -186,4 +190,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.304 on macOS.
+Tested with Claude Code 2.1.305 on macOS.

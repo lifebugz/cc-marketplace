@@ -629,6 +629,13 @@ describe('hunspellDictionary', () => {
     expect(hunspellDictionary(true)).toBeUndefined()
     expect(hunspellDictionary(undefined)).toBeUndefined()
   })
+
+  test('is off for the word off or none, in any case', () => {
+    expect(hunspellDictionary('off')).toBeUndefined()
+    expect(hunspellDictionary('OFF')).toBeUndefined()
+    expect(hunspellDictionary(' none ')).toBeUndefined()
+    expect(hunspellDictionary('en_US')).toBe('en_US')
+  })
 })
 
 describe('mergeSpans', () => {

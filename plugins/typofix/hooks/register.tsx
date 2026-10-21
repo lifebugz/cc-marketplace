@@ -36,6 +36,10 @@ import {
 } from './text'
 
 type RephraseFrom = 'band' | 'command'
+interface RephraseLimits {
+  readonly maxTokens: number
+  readonly timeoutMs: number
+}
 type RephraseOutcome =
   { readonly rewrites: readonly string[] } | { readonly reason: string }
 
@@ -51,6 +55,8 @@ interface Live {
   shortcut: string
   hunspell: string | undefined
   draftText: string
+  edits: number
+  edited: string
   checkedText: string | undefined
   spans: readonly Span[]
   hasDraft: boolean
@@ -75,7 +81,13 @@ const ENGINE_OP = /^\$\.[\w.]+(?:\([^)]*\))?:? /
 const TIMER_SLACK_MS = 500
 const TYPEAHEAD_WAIT_MS = 2000
 const TYPEAHEAD_POLL_MS = 100
-const REPHRASE_TIMEOUT_MS = 20000
+// Haiku's thinking counts toward the cap too, and it cannot be turned off.
+const REPHRASE_MAX_TOKENS = 16000
+const REPHRASE_MIN_TIMEOUT_MS = 20000
+const REPHRASE_MAX_TIMEOUT_MS = 120000
+// Measured on Haiku 5.5: 2.9 ms per reply token and up to 1.9 reply tokens
+// per draft character (Japanese); twice that leaves room for a slow reply.
+const REPHRASE_MS_PER_CHAR = 2 * 2.9 * 1.9
 const MAX_LISTED = 8
 const IGNORED_KEY = 'ignored'
 const REWRITE_LABELS = ['fixed', 'natural', 'short']
@@ -83,6 +95,8 @@ const IDLE: Rephrase = { status: 'idle' }
 const NO_BACKEND =
   'no spell checker or dictionary found (Linux: install enchant-2 or hunspell and a dictionary such as en_US). /rephrase still works.'
 const SCRIPT_WARNING = 'typofix:'
+// Only the check requests: a guesses timeout still leaves a right issue list.
+const SPELL_SERVER_TIMEOUT = /NSSpellServer dataFromChecking\w* timed out/
 
 const issues = atom({ plugin: 'typofix', key: 'issues' } as const, [])
 const isHidden = atom({ plugin: 'typofix', key: 'isHidden' } as const, false)
@@ -155,6 +169,8 @@ const live: Live = {
   shortcut: focusShortcut(undefined),
   hunspell: undefined,
   draftText: '',
+  edits: 0,
+  edited: '',
   checkedText: undefined,
   spans: [],
   hasDraft: false,
@@ -180,6 +196,14 @@ function forgetDraft(): void {
   live.spans = []
   live.hasDraft = false
   live.hiddenFor = undefined
+}
+
+// Counts what anyone but typofix's own repaints put in the box. The box change
+// of a repaint comes back through prompt.autocomplete, so live.draftText
+// cannot tell an edit the repaint undid.
+function noteEdit(text: string): void {
+  live.edits += 1
+  live.edited = text
 }
 
 // Claude Code can raise a submit at a turn's end, while the box holds the next draft.
@@ -332,26 +356,70 @@ async function runSpellCheck(
   if (again.text !== text) {
     return
   }
+  const hadSpans = live.spans.length > 0
   await showIssues($, fresh)
   live.checkedText = text
   await setChecked($, true)
   await setOffering($, offeredAt(text, again.cursor) !== undefined)
-  await paintNow($, text)
+  await paintNow($, text, hadSpans)
 }
 
-async function paintNow($: EngineInterface, text: string): Promise<void> {
-  if (live.spans.length === 0) {
+async function paintNow(
+  $: EngineInterface,
+  text: string,
+  hadSpans: boolean,
+): Promise<void> {
+  if (live.spans.length === 0 && !hadSpans) {
     return
   }
   const box = await $.prompt.read()
   if (box.text !== text || box.cursor !== text.length) {
     return
   }
-  await $.prompt.fill({
+  const edits = live.edits
+  const filled = await $.prompt.fill({
     text,
     mode: 'replace',
     decorations: decorationsFor(live.spans, offeredAt(text, text.length)),
   })
+  if (filled.isFilled) {
+    await restoreOvertaken($, text, edits)
+  }
+}
+
+// A fill lands after the edits made while it was on its way, so it can undo
+// a key or a paste. Put the last one back once; a second miss stays lost. An
+// empty edit is a sent prompt: filling it would wipe the text a dropped prompt
+// puts back.
+async function restoreOvertaken(
+  $: EngineInterface,
+  filledText: string,
+  editsBefore: number,
+): Promise<boolean> {
+  const draft = live.edited
+  const edits = live.edits
+  if (edits === editsBefore || draft === '' || draft === filledText) {
+    return false
+  }
+  const box = await $.prompt.read()
+  if (
+    live.edits !== edits ||
+    box.text !== filledText ||
+    box.cursor !== filledText.length
+  ) {
+    return false
+  }
+  const spans = shiftSpans(live.spans, diffSplice(live.draftText, draft), draft)
+  const offered = offeredSpan(spans, tokenAt(draft, draft.length))
+  const filled = await $.prompt.fill({
+    text: draft,
+    mode: 'replace',
+    decorations: decorationsFor(spans, offered),
+  })
+  if (filled.isFilled) {
+    await setOffering($, offered !== undefined)
+  }
+  return filled.isFilled
 }
 
 async function showIssues(
@@ -527,7 +595,21 @@ async function runBackend(
       to: 'debug',
     })
   }
-  return checked
+  if (backend.name !== 'osascript' || !SPELL_SERVER_TIMEOUT.test(ran.stderr)) {
+    return checked
+  }
+  // A spell server that is still starting answers "no typos" with exit 0.
+  if (live.draftText !== text) {
+    return undefined
+  }
+  $.ui.log(
+    `typofix: the macOS spell server did not answer in time${isRetry ? ' again' : ' (trying once more)'}`,
+    { to: 'debug' },
+  )
+  if (!isRetry) {
+    return runBackend($, backend, text, true)
+  }
+  return checked !== undefined && checked.spans.length > 0 ? checked : undefined
 }
 
 async function readIgnored($: EngineInterface): Promise<Set<string>> {
@@ -550,7 +632,8 @@ async function runRephrase(
   live.rephraseSource = source
   await setRephrase($, { status: 'loading' })
 
-  const reply = await askHaiku($, source, stop.signal)
+  const limits = rephraseLimits(source)
+  const reply = await askHaiku($, source, limits, stop.signal)
   if (live.rephraseStop !== stop) {
     return { reason: 'cancelled' }
   }
@@ -561,7 +644,7 @@ async function runRephrase(
       ? parseRewriteReply(reply.text)
       : undefined
   if (rewrites === undefined) {
-    const reason = typeof reply === 'string' ? reply : failureOf(reply)
+    const reason = typeof reply === 'string' ? reply : failureOf(reply, limits)
     await setRephrase($, { status: 'failed', reason })
     return { reason }
   }
@@ -569,9 +652,20 @@ async function runRephrase(
   return { rewrites }
 }
 
+function rephraseLimits(source: string): RephraseLimits {
+  const seconds = Math.ceil(
+    (REPHRASE_MIN_TIMEOUT_MS + source.length * REPHRASE_MS_PER_CHAR) / 1000,
+  )
+  return {
+    maxTokens: REPHRASE_MAX_TOKENS,
+    timeoutMs: Math.min(REPHRASE_MAX_TIMEOUT_MS, seconds * 1000),
+  }
+}
+
 async function askHaiku(
   $: EngineInterface,
   source: string,
+  limits: RephraseLimits,
   signal: AbortSignal,
 ): Promise<ModelCompleteResult | string> {
   const { system, prompt } = buildRewriteRequest(source)
@@ -584,8 +678,7 @@ async function askHaiku(
         system,
         prompt,
         effort: 'low',
-        maxTokens: Math.min(4000, 300 + 2 * source.length),
-        timeoutMs: REPHRASE_TIMEOUT_MS,
+        ...limits,
       },
       { signal },
     )
@@ -600,17 +693,19 @@ async function askHaiku(
   return reply
 }
 
-function failureOf(reply: ModelCompleteResult): string {
+function failureOf(reply: ModelCompleteResult, limits: RephraseLimits): string {
+  const cutOff = `Haiku's reply was cut off at ${String(limits.maxTokens)} tokens (the draft may be too long)`
+  const isCutOff = reply.usage.output_tokens >= limits.maxTokens
   if (reply.isAnswered) {
-    return 'Haiku did not answer with 3 rewrites'
+    return isCutOff ? cutOff : 'Haiku did not answer with 3 rewrites'
   }
   if (reply.reason === 'api-error') {
     return `Haiku failed (${reply.error})`
   }
   if (reply.reason === 'empty-reply') {
-    return 'Haiku sent an empty reply'
+    return isCutOff ? cutOff : 'Haiku sent an empty reply'
   }
-  return `Haiku took longer than ${String(REPHRASE_TIMEOUT_MS / 1000)} s`
+  return `Haiku took longer than ${String(limits.timeoutMs / 1000)} s`
 }
 
 async function rephraseDraft($: EngineInterface): Promise<void> {
@@ -671,9 +766,11 @@ async function pickChoice(
     $.ui.toast('the prompt box did not take the fix')
     return
   }
-  if (live.draftText !== text) {
+  // The box change of the fill itself may have synced the draft already.
+  if (live.draftText !== text && live.draftText !== applied.text) {
     return
   }
+  noteEdit(applied.text)
   live.draftText = applied.text
   live.checkedText = applied.text
   await writeIssues($, shifted)
@@ -696,9 +793,10 @@ async function pickRewrite($: EngineInterface, rewrite: string): Promise<void> {
     $.ui.toast('the prompt box did not take the rewrite')
     return
   }
-  if (live.draftText !== before) {
+  if (live.draftText !== before && live.draftText !== rewrite) {
     return
   }
+  noteEdit(rewrite)
   live.draftText = rewrite
   await setRephrase($, IDLE)
   await writeIssues($, [])
@@ -735,16 +833,25 @@ async function ignoreWord($: EngineInterface, word: string): Promise<void> {
   if (rest.length === live.spans.length) {
     return
   }
-  await writeIssues($, rest)
-  const offered = offeredAt(text, text.length)
-  const filled = await $.prompt.fill({
-    text,
-    mode: 'replace',
-    decorations: decorationsFor(rest, offered),
-  })
-  if (filled.isFilled) {
+  const offered = offeredSpan(rest, tokenAt(text, text.length))
+  live.spans = rest
+  // A key typed since the read would be lost to the fill; its prompt.edit
+  // paints the spans instead.
+  const box = await $.prompt.read()
+  const edits = live.edits
+  const isFilled =
+    box.text === text &&
+    (
+      await $.prompt.fill({
+        text,
+        mode: 'replace',
+        decorations: decorationsFor(rest, offered),
+      })
+    ).isFilled
+  if (isFilled && !(await restoreOvertaken($, text, edits))) {
     await setOffering($, offered !== undefined)
   }
+  await writeIssues($, live.spans)
 }
 
 async function hideIssues($: EngineInterface): Promise<void> {
@@ -775,6 +882,7 @@ export const register: Register = (on, options) => {
   on('prompt.edit', async ($, e, next) => {
     await syncDraft($, e.text)
     const edited = await next(e)
+    noteEdit(edited.text)
     if (edited.text !== e.text) {
       await onDraftChange($, e, edited.text)
     }
@@ -806,6 +914,7 @@ export const register: Register = (on, options) => {
 
   on('prompt.change', async ($, e, next) => {
     if (e.origin.kind !== 'plugin' || e.origin.name !== $.plugin.name) {
+      noteEdit(e.text)
       await syncDraft($, e.text)
     }
     return next(e)
@@ -817,6 +926,7 @@ export const register: Register = (on, options) => {
     }
     const isDraftSent = live.draftText === e.text
     forgetDraft()
+    noteEdit('')
     // A late submit while the box is empty must not close /rephrase's rewrites.
     if (isDraftSent) {
       await settleRephrase($)

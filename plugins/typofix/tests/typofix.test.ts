@@ -1,5 +1,7 @@
 import type {
+  ModelCompleteInput,
   ModelCompleteResult,
+  ModelUsage,
   On,
   ProcessRunResult,
   PromptDecoration,
@@ -12,6 +14,7 @@ import {
   test,
   type Engine,
   type MockClock,
+  type TestOptions,
 } from 'claude-code/testing'
 
 const PLUGIN = 'typofix'
@@ -74,7 +77,7 @@ interface Guess {
   readonly confidence: number
 }
 
-interface SubmitHold {
+interface CallHold {
   readonly reached: Promise<void>
   readonly release: () => void
   readonly wait: () => Promise<void>
@@ -95,15 +98,22 @@ interface World {
   programs: string[]
   cwds: (string | undefined)[]
   reads: number
-  replies: (ModelCompleteResult | 'refused')[]
+  replies: (
+    | ModelCompleteResult
+    | 'refused'
+    | ((maxTokens: number | undefined) => ModelCompleteResult)
+  )[]
+  requests: ModelCompleteInput[]
   saved: Map<string, unknown>
   isStoreRefused: boolean
   prompts: string[]
   isSubmitDropped: boolean
-  submitHold: SubmitHold | undefined
+  submitHold: CallHold | undefined
+  fillHold: CallHold | undefined
+  afterFill: ((text: string) => Promise<void>) | undefined
 }
 
-function holdSubmit(): SubmitHold {
+function holdCall(): CallHold {
   const gate: { reach?: () => void; open?: () => void } = {}
   const reached = new Promise<void>(resolve => {
     gate.reach = resolve
@@ -159,6 +169,85 @@ const macReads =
 const macFinds = (...issues: readonly MacIssue[]): Process =>
   macReads(undefined, ...issues)
 
+interface FillEcho {
+  readonly afterFill: (text: string) => Promise<void>
+  readonly count: () => number
+}
+
+const isCall = (value: unknown): value is (e: unknown) => Promise<unknown> =>
+  typeof value === 'function'
+
+// Claude Code raises prompt.autocomplete for the box change of a fill before
+// the fill resolves, so typofix's hook syncs the draft first. The kit's raise
+// is untyped; a kit without it fails the test instead of skipping the echo.
+function echoFills($: Engine, on: On): FillEcho {
+  let reach: (() => void) | undefined
+  on('prompt.autocomplete', () => {
+    reach?.()
+    return { suggestions: [] }
+  })
+  const raise: unknown = Reflect.get($.prompt, 'autocomplete')
+  if (!isCall(raise)) {
+    throw new Error('the test kit cannot raise prompt.autocomplete')
+  }
+  let echoes = 0
+  const afterFill = async (text: string): Promise<void> => {
+    const token = /\S+$/.exec(text)?.[0] ?? ''
+    if (token === '') {
+      return
+    }
+    echoes += 1
+    const reached = new Promise<void>(resolve => {
+      reach = resolve
+    })
+    raise({
+      text,
+      cursor: text.length,
+      token,
+      start: text.length - token.length,
+    }).catch(() => undefined)
+    await reached
+    // Turns enough for typofix's hook to finish its syncDraft.
+    for (let turn = 0; turn < 300; turn++) {
+      await Promise.resolve()
+    }
+  }
+  return { afterFill, count: () => echoes }
+}
+
+const WITHOUT_HUNSPELL: readonly (readonly [string, TestOptions])[] = [
+  ['hunspell off', { options: { hunspell: '' } }],
+  ['hunspell not installed', {}],
+]
+
+const coldServer = (...lines: readonly string[]): ProcessRunResult => ({
+  ...ran('{"issues":[]}'),
+  stderr: lines
+    .map(
+      line => `2000-01-01 00:00:00.000 osascript[1:2] NSSpellServer ${line}\n`,
+    )
+    .join(''),
+})
+
+const SPELL_SERVER_TIMEOUT = coldServer(
+  'dataFromCheckingString timed out, index is 1',
+  'dataFromCheckingGrammarInString timed out, post editing index is 1',
+)
+
+function osascriptRuns(
+  answers: readonly (ProcessRunResult | 'aborted')[],
+  after: Process,
+): Process {
+  let runs = 0
+  return (argv, stdin) => {
+    if (argv[0] !== 'osascript') {
+      return after(argv, stdin)
+    }
+    runs += 1
+    return answers[runs - 1] ?? after(argv, stdin)
+  }
+}
+
 function setup(
   on: On,
   process: Process,
@@ -181,11 +270,14 @@ function setup(
     cwds: [],
     reads: 0,
     replies: [ANSWER],
+    requests: [],
     saved: new Map(),
     isStoreRefused: false,
     prompts: [],
     isSubmitDropped: false,
     submitHold: undefined,
+    fillHold: undefined,
+    afterFill: undefined,
   }
 
   on('session.start', () => ({ cwd: '/work' }))
@@ -210,7 +302,10 @@ function setup(
       value: { text: world.draft, cursor: world.cursor ?? world.draft.length },
     }
   })
-  on('prompt.fill', (_$, e) => {
+  on('prompt.fill', async (_$, e) => {
+    const hold = world.fillHold
+    world.fillHold = undefined
+    await hold?.wait()
     if (world.isFillRefused) {
       return { isFilled: false }
     }
@@ -220,6 +315,7 @@ function setup(
       world.filled.push(e.text)
     }
     world.draft = e.text
+    await world.afterFill?.(e.text)
     return { isFilled: true }
   })
   on('prompt.submit', async (_$, e) => {
@@ -250,10 +346,12 @@ function setup(
   })
   on('model.complete', (_$, e) => {
     world.prompts.push(e.prompt)
+    world.requests.push(e)
     const reply = world.replies.shift() ?? ANSWER
-    return reply === 'refused'
-      ? { deny: 'the haiku model is blocked' }
-      : { value: reply }
+    if (reply === 'refused') {
+      return { deny: 'the haiku model is blocked' }
+    }
+    return { value: typeof reply === 'function' ? reply(e.maxTokens) : reply }
   })
   on('store.get', (_$, e) => ({ value: world.saved.get(e.key) }))
   on('store.set', (_$, e) => {
@@ -678,6 +776,108 @@ describe('live spelling', () => {
     },
   )
 
+  for (const [hunspell, options] of WITHOUT_HUNSPELL) {
+    test(
+      `a macOS check the spell server was too cold to answer runs once more and lists the typo (${hunspell})`,
+      options,
+      async ($, on) => {
+        const world = setup(
+          on,
+          osascriptRuns(
+            [SPELL_SERVER_TIMEOUT],
+            macFinds({ word: 'teh', choices: ['the'] }),
+          ),
+          'fix teh bug now',
+        )
+        await startAndCheck($, world)
+
+        expect(world.programs.filter(p => p === 'osascript')).toHaveLength(2)
+        expect(world.toasts).toEqual([])
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        expect(await band.find({ key: 'fix-1-1' })).toMatchObject({
+          text: 'the',
+        })
+      },
+    )
+
+    test(
+      `a spell server too cold twice in a row never says no typos and gives no notice (${hunspell})`,
+      options,
+      async ($, on) => {
+        const world = setup(
+          on,
+          osascriptRuns(
+            [SPELL_SERVER_TIMEOUT, SPELL_SERVER_TIMEOUT],
+            macFinds({ word: 'teh', choices: ['the'] }),
+          ),
+          'fix teh bug now',
+        )
+        await startAndCheck($, world)
+
+        expect(world.programs).toEqual(['osascript', 'osascript'])
+        expect(world.toasts).toEqual([])
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        expect(
+          await band.find({ type: 'Text', text: /no typos/ }),
+        ).toBeUndefined()
+      },
+    )
+
+    test(
+      `a cold spell server and then an aborted run keep osascript, with no notice (${hunspell})`,
+      options,
+      async ($, on) => {
+        const world = setup(
+          on,
+          osascriptRuns(
+            [SPELL_SERVER_TIMEOUT, 'aborted'],
+            macFinds({ word: 'teh', choices: ['the'] }),
+          ),
+          'fix teh bug now',
+        )
+        await startAndCheck($, world)
+        expect(world.programs.filter(p => p === 'osascript')).toHaveLength(2)
+        expect(world.toasts).toEqual([])
+
+        const before = world.programs.length
+        await startAndCheck($, world)
+        expect(world.programs[before]).toBe('osascript')
+        expect(world.programs).not.toContain('enchant-2')
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        expect(await band.find({ key: 'fix-1-1' })).toMatchObject({
+          text: 'the',
+        })
+      },
+    )
+
+    test(
+      `a timeout on the fixes alone keeps the issue list, with no second run (${hunspell})`,
+      options,
+      async ($, on) => {
+        const slowGuesses: Process = (argv, stdin) => {
+          const answer = macFinds({ word: 'teh', choices: [] })(argv, stdin)
+          return typeof answer !== 'string'
+            ? {
+                ...answer,
+                stderr: coldServer(
+                  'suggestGuessesForWordRange timed out, index is 3',
+                ).stderr,
+              }
+            : answer
+        }
+        const world = setup(on, slowGuesses, 'fix teh bug now')
+        await startAndCheck($, world)
+
+        expect(world.programs.filter(p => p === 'osascript')).toHaveLength(1)
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        expect(await band.find({ type: 'Text', text: /^teh$/ })).toBeDefined()
+        expect(
+          await band.find({ type: 'Text', text: 'no suggestions' }),
+        ).toBeDefined()
+      },
+    )
+  }
+
   test('ignore keeps a word out of later checks', async ($, on) => {
     const world = setup(
       on,
@@ -777,6 +977,38 @@ describe('hunspell and the shortcut', () => {
       expect(world.programs).toEqual(['osascript'])
     },
   )
+
+  test(
+    'the hunspell option off means macOS alone',
+    { options: { hunspell: 'off' } },
+    async ($, on) => {
+      const world = setup(on, macAndHunspell(), 'whaat do youu think')
+      await startAndCheck($, world)
+
+      expect(world.programs).toEqual(['osascript'])
+    },
+  )
+
+  test('with hunspell not installed, macOS checks alone with no notice', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'youu', choices: ['you'] }),
+      'whaat do youu think',
+    )
+    world.cursor = 0
+    await startAndCheck($, world)
+    await startAndCheck($, world)
+
+    expect(world.programs).toEqual([
+      'osascript',
+      'hunspell',
+      'hunspell',
+      'osascript',
+    ])
+    expect(world.toasts).toEqual([])
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'you' })
+  })
 
   test(
     'a language option other than the dictionary language leaves hunspell out',
@@ -1095,6 +1327,52 @@ describe('marking the word', () => {
     expect(world.repaints).toEqual([])
   })
 
+  const grammarUntilFixed: Process = (argv, stdin) =>
+    stdin.includes('teh')
+      ? macFinds(
+          { word: 'go', choices: ['goes'], kind: 'grammar' },
+          { word: 'teh', choices: ['the'] },
+        )(argv, stdin)
+      : macFinds()(argv, stdin)
+
+  for (const [hunspell, options] of WITHOUT_HUNSPELL) {
+    test(
+      `a check that finds nothing more takes the last underline off at once (${hunspell})`,
+      options,
+      async ($, on) => {
+        const world = setup(on, grammarUntilFixed, 'He go to teh store now')
+        await startAndCheck($, world)
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        await band.press({ key: 'fix-2-1' })
+        await world.clock.advance(400)
+
+        expect(world.filled).toEqual(['He go to the store now'])
+        expect(world.repaints).toEqual([
+          [
+            { start: 3, end: 5, underline: true, color: 'warning' },
+            { start: 9, end: 12, underline: true, color: 'error' },
+          ],
+          [],
+        ])
+      },
+    )
+
+    test(
+      `a check that finds nothing more leaves the box alone while the cursor is inside the draft (${hunspell})`,
+      options,
+      async ($, on) => {
+        const world = setup(on, grammarUntilFixed, 'He go to teh store now')
+        await startAndCheck($, world)
+        const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+        await band.press({ key: 'fix-2-1' })
+        world.cursor = 3
+        await world.clock.advance(400)
+
+        expect(world.repaints).toHaveLength(1)
+      },
+    )
+  }
+
   test('ignore takes the underline off that word at once and keeps the other', async ($, on) => {
     const world = setup(on, twoTypos(), 'teh bug wiht now')
     await startAndCheck($, world)
@@ -1109,6 +1387,99 @@ describe('marking the word', () => {
       ],
       [{ start: 8, end: 12, underline: true, color: 'error' }],
     ])
+  })
+
+  test('a band fix made while a repaint was on its way stays in the box', async ($, on) => {
+    const world = setup(on, twoTypos(), 'fix teh bug wiht now')
+    const hold = holdCall()
+    world.fillHold = hold
+    await $.session.start({
+      cwd: '/work',
+      surface: 'terminal',
+      isInteractive: true,
+    })
+    const checked = world.clock.advance(400)
+    await hold.reached
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    expect(world.draft).toBe('fix the bug wiht now')
+
+    hold.release()
+    await checked
+    await world.clock.advance(0)
+    expect(world.filled).toEqual([
+      'fix the bug wiht now',
+      'fix teh bug wiht now',
+      'fix the bug wiht now',
+    ])
+    expect(world.draft).toBe('fix the bug wiht now')
+  })
+
+  test('a band fix made while a repaint was on its way stays in the box, though the fix itself already synced the draft', async ($, on) => {
+    const world = setup(on, twoTypos(), 'fix teh bug wiht now')
+    const echo = echoFills($, on)
+    world.afterFill = echo.afterFill
+    const hold = holdCall()
+    world.fillHold = hold
+    await $.session.start({
+      cwd: '/work',
+      surface: 'terminal',
+      isInteractive: true,
+    })
+    const checked = world.clock.advance(400)
+    await hold.reached
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'fix-1-1' })
+    hold.release()
+    await checked
+    await world.clock.advance(0)
+
+    expect(echo.count()).toBeGreaterThan(0)
+    expect(world.draft).toBe('fix the bug wiht now')
+  })
+
+  test('a rewrite picked while a repaint was on its way stays in the box, though it already synced the draft', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      'He go to teh store now',
+    )
+    const echo = echoFills($, on)
+    world.afterFill = echo.afterFill
+    const hold = holdCall()
+    world.fillHold = hold
+    await $.session.start({
+      cwd: '/work',
+      surface: 'terminal',
+      isInteractive: true,
+    })
+    const checked = world.clock.advance(400)
+    await hold.reached
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await band.press({ key: 'rephrase' })
+    await band.press({ key: 'rewrite-1' })
+    hold.release()
+    await checked
+    await world.clock.advance(0)
+
+    expect(echo.count()).toBeGreaterThan(0)
+    expect(world.draft).toBe(REWRITES[0])
+  })
+
+  test('an ignore fills nothing when a key landed after it read the box', async ($, on) => {
+    const world = setup(on, twoTypos(), 'teh bug wiht now', {
+      atRead: 6,
+      draft: 'teh bug wiht now!',
+    })
+    await startAndCheck($, world)
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(world.reads).toBe(4)
+    await band.press({ key: 'ignore-1' })
+
+    expect(world.draft).toBe('teh bug wiht now!')
+    expect(world.filled).toEqual([])
+    expect(world.repaints).toHaveLength(1)
+    expect(await band.find({ type: 'Text', text: /1 typo\b/ })).toBeDefined()
   })
 
   test('no repaint when the draft changed during the check', async ($, on) => {
@@ -1249,6 +1620,76 @@ describe('rephrase', () => {
     world.isFillRefused = true
     await band.press({ key: 'rewrite-1' })
     expect(world.toasts).toEqual(['the prompt box did not take the rewrite'])
+  })
+
+  const SHORT_DRAFT = 'He go to the store'
+  const LONG_DRAFT = 'He go to the store and buy three apple. '.repeat(150)
+  const CUT_OFF =
+    "Haiku's reply was cut off at 16000 tokens (the draft may be too long)"
+  const atCap = (maxTokens: number | undefined): ModelUsage => ({
+    ...USAGE,
+    output_tokens: maxTokens ?? 0,
+  })
+
+  test('a long draft gets the same token cap as a short one and more time', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    for (const args of [SHORT_DRAFT, LONG_DRAFT]) {
+      await $.command.run({ ...TYPED, command: 'rephrase', args })
+    }
+
+    const [short, long] = world.requests
+    expect(short?.maxTokens).toBe(16000)
+    expect(long?.maxTokens).toBe(16000)
+    expect(short?.timeoutMs).toBeGreaterThanOrEqual(20000)
+    expect(long?.timeoutMs).toBeGreaterThan(short?.timeoutMs ?? Infinity)
+    expect(long?.timeoutMs).toBeLessThanOrEqual(120000)
+  })
+
+  test('a reply cut off at the token cap says so, answered or empty', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    world.replies = [
+      (maxTokens): ModelCompleteResult => ({
+        isAnswered: true,
+        text: '{"rewrites": ["He goes',
+        usage: atCap(maxTokens),
+      }),
+      (maxTokens): ModelCompleteResult => ({
+        isAnswered: false,
+        reason: 'empty-reply',
+        usage: atCap(maxTokens),
+      }),
+    ]
+
+    for (let call = 0; call < 2; call++) {
+      const answer = await $.command.run({
+        ...TYPED,
+        command: 'rephrase',
+        args: LONG_DRAFT,
+      })
+      expect(answer.text).toBe(CUT_OFF)
+    }
+  })
+
+  test('a long draft that runs out of time names the time it had', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    world.replies = [
+      {
+        isAnswered: false,
+        reason: 'aborted',
+        usage: { ...USAGE, output_tokens: 0 },
+      },
+    ]
+
+    const answer = await $.command.run({
+      ...TYPED,
+      command: 'rephrase',
+      args: LONG_DRAFT,
+    })
+    const timeoutMs = world.requests[0]?.timeoutMs ?? 0
+    expect(timeoutMs).toBeGreaterThan(20000)
+    expect(answer.text).toBe(
+      `Haiku took longer than ${String(timeoutMs / 1000)} s`,
+    )
   })
 
   test('/rephrase answers with the rewrites as text', async ($, on) => {
@@ -1458,7 +1899,7 @@ describe('a prompt sent while the box holds another draft', () => {
     await band.press({ key: 'hide' })
     expect(await band.find({ key: 'fix-1-1' })).toBeUndefined()
 
-    const hold = holdSubmit()
+    const hold = holdCall()
     world.submitHold = hold
     const sent = $.prompt.submit(typed('zz wiht now'))
     await hold.reached

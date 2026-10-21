@@ -49,6 +49,7 @@ const SURE_GUESS = 0.9
 
 const LATIN_WORD = /^[\p{Script=Latin}\p{M}'’]+$/u
 const DICTIONARY_NAME = /^[A-Za-z0-9_-]+$/
+const NO_DICTIONARY = /^(?:off|none)$/i
 
 const CODE_SPANS = [/```[\s\S]*?(?:```|$)/g, /`[^`\n]*`/g]
 
@@ -607,7 +608,9 @@ export function hunspellDictionary(option: unknown): string | undefined {
     return undefined
   }
   const name = option.trim()
-  return DICTIONARY_NAME.test(name) ? name : undefined
+  return DICTIONARY_NAME.test(name) && !NO_DICTIONARY.test(name)
+    ? name
+    : undefined
 }
 
 export function isDictionaryLanguage(
