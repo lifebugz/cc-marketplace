@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.304.
+// Written by Claude Code 2.1.305.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -5454,7 +5454,9 @@ declare module 'claude-code' {
 
   /**
    * The props of `Image`, the terminal surface's picture leaf: pixels over a
-   * box of cells where the terminal can (kitty, Ghostty), the `alt` elsewhere.
+   * box of cells where the terminal can (kitty and Ghostty, or iTerm2 3.5 and
+   * later for `png` and `rgba` bytes under fullscreen rendering), the `alt`
+   * elsewhere.
    *
    * A leaf: no children, `hover` or `onPress`; the cells are text, so the
    * picture scrolls and clips as a word does. Drawn again with another `source`
