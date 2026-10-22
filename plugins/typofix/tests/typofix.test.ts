@@ -6,6 +6,7 @@ import type {
   ProcessRunResult,
   PromptDecoration,
   PromptSubmitInput,
+  RenderSurface,
 } from 'claude-code'
 import {
   describe,
@@ -111,6 +112,9 @@ interface World {
   submitHold: CallHold | undefined
   fillHold: CallHold | undefined
   afterFill: ((text: string) => Promise<void>) | undefined
+  isReadSilent: boolean
+  surfaces: RenderSurface[]
+  modelDelayMs: number
 }
 
 function holdCall(): CallHold {
@@ -253,6 +257,7 @@ function setup(
   process: Process,
   draft: string,
   retype?: { readonly atRead: number; readonly draft: string },
+  env: Readonly<Record<string, string>> = {},
 ): World {
   const world: World = {
     clock: mock.clock(on),
@@ -278,22 +283,39 @@ function setup(
     submitHold: undefined,
     fillHold: undefined,
     afterFill: undefined,
+    isReadSilent: false,
+    surfaces: [],
+    modelDelayMs: 0,
   }
 
   on('session.start', () => ({ cwd: '/work' }))
+  on('session.attach', (_$, e) => {
+    world.surfaces = [...world.surfaces.filter(s => s !== e.surface), e.surface]
+    return { clientId: e.clientId }
+  })
+  on('session.detach', (_$, e) => {
+    world.surfaces = world.surfaces.filter(s => s !== e.surface)
+    return { clientId: e.clientId }
+  })
+  on('session.surfaces', () => ({ value: [...world.surfaces] }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('settings.read', () => {
     world.settingsReads += 1
     return { value: {} }
   })
-  mock.env(on, { HOME: '/home/someone' })
+  mock.env(on, { HOME: '/home/someone', ...env })
   on('fs.read', (_$, e) =>
     world.keybindings !== undefined &&
     e.path === '/home/someone/.claude/keybindings.json'
       ? { value: world.keybindings }
       : { deny: `ENOENT: ${e.path}` },
   )
-  on('prompt.read', () => {
+  on('prompt.read', async () => {
+    if (world.isReadSilent) {
+      // The extension answers an empty box after 4.5 s when the panel is silent.
+      await world.clock.sleep(4500)
+      return { value: { text: '', cursor: 0 } }
+    }
     world.reads += 1
     if (world.reads === retype?.atRead) {
       world.draft = retype.draft
@@ -344,7 +366,10 @@ function setup(
       ? { deny: `${program}: not found` }
       : { value: result }
   })
-  on('model.complete', (_$, e) => {
+  on('model.complete', async (_$, e) => {
+    if (world.modelDelayMs > 0) {
+      await world.clock.sleep(world.modelDelayMs)
+    }
     world.prompts.push(e.prompt)
     world.requests.push(e)
     const reply = world.replies.shift() ?? ANSWER
@@ -1709,6 +1734,212 @@ describe('rephrase', () => {
     expect(
       (await $.command.run({ ...TYPED, command: 'rephrase', args: ' ' })).text,
     ).toBe('usage: /rephrase <text>')
+  })
+})
+
+describe('the VS Code panel', () => {
+  const PANEL_ENV = { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } as const
+  const PANEL_BAND = { ...BAND, surface: 'vscode' } as const
+
+  async function openPanel(
+    $: Engine,
+    world: { readonly clock: MockClock },
+  ): Promise<void> {
+    await $.session.start({ cwd: '/work', surface: null, isInteractive: false })
+    await $.session.attach({ surface: 'vscode', clientId: 'panel-1' })
+    await world.clock.advance(1000)
+  }
+
+  test('a typo in the panel is listed after the next read, and a click fills the fix', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'recieve', choices: ['receive', 'relieve'] }),
+      'please recieve the file now',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(
+      await band.find({ type: 'Text', text: /1 typo · click a fix/ }),
+    ).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /ctrl\+x/ })).toBeUndefined()
+    await band.press({ key: 'fix-1-1' })
+    expect(world.filled).toEqual(['please receive the file now'])
+    expect(world.repaints).toEqual([])
+  })
+
+  test('a draft typed after the panel opened is checked on a later read', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      '',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    world.draft = 'fix teh bug now'
+    await world.clock.advance(1000)
+
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'the' })
+  })
+
+  test('the band stays while the cursor is right after a typo, since the panel shows no typeahead', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'wiht', choices: ['with'] }),
+      'fix the bug wiht',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'with' })
+  })
+
+  test('a prompt sent from the panel clears the band', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      'fix teh bug now',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toBeDefined()
+
+    await $.prompt.submit({
+      origin: { kind: 'sdk' },
+      wait: false,
+      text: 'fix teh bug now',
+    })
+    expect(await band.find({ key: 'fix-1-1' })).toBeUndefined()
+    world.draft = ''
+    await world.clock.advance(1000)
+    expect(await band.find({ key: 'fix-1-1' })).toBeUndefined()
+  })
+
+  test('ignore in the panel takes the word off the band with no fill', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(
+        { word: 'teh', choices: ['the'] },
+        { word: 'wiht', choices: ['with'] },
+      ),
+      'teh bug wiht now',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    const band = await $.ui.mount(PANEL_BAND)
+    await band.press({ key: 'ignore-1' })
+
+    expect(world.saved.get('ignored')).toEqual(['teh'])
+    expect(await band.find({ type: 'Text', text: /1 typo\b/ })).toBeDefined()
+    expect(world.filled).toEqual([])
+    expect(world.repaints).toEqual([])
+  })
+
+  test('a panel that does not answer a read in time keeps the typos listed', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      'fix teh bug now',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    world.isReadSilent = true
+    await world.clock.advance(10000)
+
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'the' })
+  })
+
+  test('a typofix loaded after the panel attached, as after a reload, still reads the panel', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      'fix teh bug now',
+      undefined,
+      PANEL_ENV,
+    )
+    world.surfaces = ['vscode']
+    await $.session.start({ cwd: '/work', surface: null, isInteractive: false })
+    await world.clock.advance(1000)
+
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'the' })
+  })
+
+  test('once the panel detaches, typofix stops reading the draft', async ($, on) => {
+    const world = setup(on, macFinds(), 'fix the bug now', undefined, PANEL_ENV)
+    await openPanel($, world)
+    await $.session.detach({
+      surface: 'vscode',
+      clientId: 'panel-1',
+      reason: 'detach',
+    })
+    const reads = world.reads
+    await world.clock.advance(2000)
+
+    expect(world.reads).toBe(reads)
+  })
+
+  test('a panel send right after the last key, before the next read, still resets a hidden band', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      'fix teh bug',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    const band = await $.ui.mount(PANEL_BAND)
+    await band.press({ key: 'hide' })
+    expect(await band.find({ key: 'fix-1-1' })).toBeUndefined()
+
+    world.draft = 'fix teh bug now'
+    await $.prompt.submit({
+      origin: { kind: 'sdk' },
+      wait: false,
+      text: 'fix teh bug now',
+    })
+    world.draft = 'see teh bug'
+    await world.clock.advance(1000)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'the' })
+  })
+
+  test('a Rephrase clicked right after typing is not cancelled by the next read', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(),
+      'He go to the store',
+      undefined,
+      PANEL_ENV,
+    )
+    world.modelDelayMs = 2000
+    await openPanel($, world)
+    const band = await $.ui.mount(PANEL_BAND)
+
+    world.draft = 'He go to the store now'
+    await band.press({ key: 'rephrase' })
+    await world.clock.advance(3000)
+    expect(await band.find({ key: 'rewrite-1' })).toBeDefined()
+    expect(world.prompts[0]).toContain('He go to the store now')
+  })
+
+  test('with no panel attached, a non-interactive session never reads the draft', async ($, on) => {
+    const world = setup(on, macFinds(), 'fix the bug now', undefined, PANEL_ENV)
+    await $.session.start({ cwd: '/work', surface: null, isInteractive: false })
+    await world.clock.advance(2000)
+
+    expect(world.reads).toBe(0)
+    expect(world.programs).toEqual([])
   })
 })
 

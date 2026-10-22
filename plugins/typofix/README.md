@@ -140,6 +140,24 @@ in one language, set it.
 With no spell checker, the mod shows one notice, and `r` and `/rephrase` still
 work.
 
+## VS Code
+
+typofix also works in the Claude Code panel of the VS Code extension, but the
+panel tells mods nothing about single keys and draws no underlines in its
+input. So in the panel:
+
+- typofix reads the draft about three times a second and lists its typos in
+  the band above the input.
+- You click a fix, `ignore`, `Hide`, `Rephrase` or a rewrite. Buttons have no
+  keys there.
+- A fix or a rewrite replaces the whole draft and moves the cursor to the end;
+  `ignore` leaves the draft alone.
+- There are no underlines and no Tab fixes.
+
+For underlines, Tab fixes and keys, run Claude in VS Code's terminal: turn on
+the `claudeCode.useTerminal` setting, or run `claude` in the integrated
+terminal. Tested with the VS Code extension 2.1.306.
+
 ## Limits
 
 - A mistake is underlined as soon as the check finds it while the cursor is at
@@ -149,13 +167,14 @@ work.
   because changing the marks at once would move the cursor.
 - Claude Code decides where the suggestion list is drawn. The band steps aside so
   the fixes sit next to the prompt; it comes back when the cursor moves on.
-- A fix taken with Tab keeps the cursor where it is. A fix or an ignore from the
-  band replaces the whole draft, so the cursor moves to the end.
+- A fix taken with Tab keeps the cursor where it is. In the terminal and the
+  desktop app, a fix or an ignore from the band replaces the whole draft, so the
+  cursor moves to the end.
 - Marking the draft at once replaces it, so a key or paste that lands in that
   same moment is undone; typofix then puts it back. It does this once, so a
   second key in the moment of the put-back can still be lost.
 - The live check runs a program on your computer, so it needs a local Claude Code:
-  the terminal, or the desktop app's local Code tab.
+  the terminal, the desktop app's local Code tab, or the VS Code extension.
 - Grammar checks are best effort. The macOS grammar model does not flag the same
   sentence every time, and it misses errors such as `He go` or `three apple`.
   `/rephrase` catches those.
@@ -190,4 +209,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.307 on macOS.
+Tested with Claude Code 2.1.308 on macOS.

@@ -72,9 +72,19 @@ interface Live {
   rephraseFrom: RephraseFrom
   rephraseSource: string
   rephraseStop: AbortController | undefined
+  isPanelHost: boolean
+  isPanelAttached: boolean
+  hasEdits: boolean
+  isReading: boolean
+  pollTimer: Timer | undefined
 }
 
 const CHECK_DELAY_MS = 400
+// The VS Code panel raises no prompt.edit, so its draft is read on a timer.
+const PANEL_ENTRYPOINT = 'claude-vscode'
+const PANEL_POLL_MS = 300
+// The extension answers an empty box after 4.5 s when the panel is silent.
+const PANEL_SILENT_MS = 4000
 const SPELL_TIMEOUT_MS = 5000
 const MAX_HUNSPELL_MISSES = 3
 const ENGINE_OP = /^\$\.[\w.]+(?:\([^)]*\))?:? /
@@ -186,6 +196,15 @@ const live: Live = {
   rephraseFrom: 'band',
   rephraseSource: '',
   rephraseStop: undefined,
+  isPanelHost: false,
+  isPanelAttached: false,
+  hasEdits: false,
+  isReading: false,
+  pollTimer: undefined,
+}
+
+function isPanel(): boolean {
+  return live.isPanelAttached && !live.hasEdits
 }
 
 function forgetDraft(): void {
@@ -227,7 +246,9 @@ function offeredAt(text: string, cursor: number): Span | undefined {
   return offeredSpan(live.spans, tokenAt(text, cursor))
 }
 
-async function setOffering($: EngineInterface, value: boolean): Promise<void> {
+async function setOffering($: EngineInterface, offer: boolean): Promise<void> {
+  // The panel shows no typeahead rows, so the band never steps aside there.
+  const value = offer && !isPanel()
   if (value === live.isOffering) {
     return
   }
@@ -369,7 +390,8 @@ async function paintNow(
   text: string,
   hadSpans: boolean,
 ): Promise<void> {
-  if (live.spans.length === 0 && !hadSpans) {
+  // The panel drops decorations, and a fill would move its caret.
+  if ((live.spans.length === 0 && !hadSpans) || isPanel()) {
     return
   }
   const box = await $.prompt.read()
@@ -713,6 +735,9 @@ async function rephraseDraft($: EngineInterface): Promise<void> {
   if (text.trim() === '') {
     return
   }
+  // In the panel the draft copy can trail the box; a later read of this same
+  // text must not count as an edit that cancels the rewrite.
+  await syncDraft($, text)
   await runRephrase($, text, 'band')
 }
 
@@ -835,6 +860,10 @@ async function ignoreWord($: EngineInterface, word: string): Promise<void> {
   }
   const offered = offeredSpan(rest, tokenAt(text, text.length))
   live.spans = rest
+  if (isPanel()) {
+    await writeIssues($, live.spans)
+    return
+  }
   // A key typed since the read would be lost to the fill; its prompt.edit
   // paints the spans instead.
   const box = await $.prompt.read()
@@ -852,6 +881,41 @@ async function ignoreWord($: EngineInterface, word: string): Promise<void> {
     await setOffering($, offered !== undefined)
   }
   await writeIssues($, live.spans)
+}
+
+async function pollPanel($: EngineInterface): Promise<void> {
+  if (!isPanel() || live.isReading) {
+    return
+  }
+  live.isReading = true
+  try {
+    const startedAt = await $.clock.now()
+    const { text } = await $.prompt.read()
+    const isSilent =
+      text === '' && (await $.clock.now()) - startedAt >= PANEL_SILENT_MS
+    if (!isSilent) {
+      await syncDraft($, text)
+    }
+  } finally {
+    live.isReading = false
+  }
+}
+
+// Asked, not counted from session.attach: a module loaded after the panel
+// attached (a reload or an enable) hears no attach.
+async function readPanelAttached($: EngineInterface): Promise<void> {
+  live.isPanelAttached = (await $.session.surfaces()).includes('vscode')
+}
+
+function startPanelPoll($: EngineInterface): void {
+  live.pollTimer?.cancel()
+  live.pollTimer = $.clock.every(PANEL_POLL_MS, () => {
+    pollPanel($).catch((error: unknown) => {
+      $.ui.log(`typofix: reading the panel's draft failed: ${String(error)}`, {
+        to: 'debug',
+      })
+    })
+  })
 }
 
 async function hideIssues($: EngineInterface): Promise<void> {
@@ -875,11 +939,34 @@ export const register: Register = (on, options) => {
     })
     if (e.isInteractive) {
       scheduleCheck($, undefined)
+    } else if (
+      (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === PANEL_ENTRYPOINT
+    ) {
+      live.isPanelHost = true
+      await readPanelAttached($)
+      startPanelPoll($)
     }
     return next(e)
   })
 
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    if (live.isPanelHost) {
+      await readPanelAttached($)
+    }
+    return attached
+  })
+
+  on('session.detach', async ($, e, next) => {
+    const detached = await next(e)
+    if (live.isPanelHost) {
+      await readPanelAttached($)
+    }
+    return detached
+  })
+
   on('prompt.edit', async ($, e, next) => {
+    live.hasEdits = true
     await syncDraft($, e.text)
     const edited = await next(e)
     noteEdit(edited.text)
@@ -921,7 +1008,13 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind !== 'composer' || isLateSubmit(e.text)) {
+    // The panel's draft copy can trail its box by one read, so a panel send
+    // is never judged late; the next read checks whatever the box holds.
+    const isPanelSend = isPanel() && e.origin.kind === 'sdk'
+    if (
+      !isPanelSend &&
+      (e.origin.kind !== 'composer' || isLateSubmit(e.text))
+    ) {
       return next(e)
     }
     const isDraftSent = live.draftText === e.text
@@ -971,7 +1064,12 @@ export const register: Register = (on, options) => {
       read($, rephrase),
     ])
     const { Box, Button, Text } = $.ui.resolve(e)
-    const header = <Text dimColor>typofix · {live.shortcut}, then a key</Text>
+    const isClicked = e.surface === 'vscode'
+    const header = (
+      <Text dimColor>
+        typofix{isClicked ? '' : ` · ${live.shortcut}, then a key`}
+      </Text>
+    )
 
     if (phrase.status === 'loading') {
       return (
@@ -1068,7 +1166,7 @@ export const register: Register = (on, options) => {
         <Box columnGap={1}>
           <Text dimColor>
             typofix · {verdict}
-            {live.shortcut}, then
+            {isClicked ? '' : `${live.shortcut}, then`}
           </Text>
           <Button
             key="rephrase"
@@ -1094,7 +1192,8 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Text dimColor>
-          typofix · {count} · {live.shortcut}, then a letter
+          typofix · {count} ·{' '}
+          {isClicked ? 'click a fix' : `${live.shortcut}, then a letter`}
         </Text>
         {shown.map((issue, row) => (
           <Box key={`issue-${String(row + 1)}`} columnGap={2}>

@@ -1,6 +1,6 @@
 {
   "name": "typofix",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask.",
   "author": {
     "name": "lifebugz"
