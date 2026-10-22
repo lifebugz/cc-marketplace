@@ -39,6 +39,7 @@ const view = atom({ plugin: 'htl', key: 'view' } as const, FIRST_CARD)
 
 let queue: Promise<unknown> = Promise.resolve()
 let gateLifts = 0
+let isToolRegistered = false
 
 interface Committed {
   readonly task: HtlTask
@@ -58,6 +59,29 @@ function messageOf(error: unknown): string {
 
 function logError($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`htl: ${what}: ${messageOf(error)}`, { to: 'debug' })
+}
+
+// The flag is set before the await: session.start and session.attach can
+// overlap, and a second client (a phone) attaches again.
+async function registerTool(
+  $: EngineInterface,
+  secrets: SecretsMode,
+): Promise<void> {
+  if (isToolRegistered) {
+    return
+  }
+  isToolRegistered = true
+  try {
+    await $.tool.register({
+      name: TOOL_NAME,
+      description: toolDescription(secrets),
+      inputSchema: inputSchema(secrets),
+      isDeferred: false,
+    })
+  } catch (error) {
+    isToolRegistered = false
+    logError($, 'the tool was not registered', error)
+  }
 }
 
 async function isPanePlaced($: EngineInterface): Promise<boolean> {
@@ -268,16 +292,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     if (e.isInteractive) {
-      try {
-        await $.tool.register({
-          name: TOOL_NAME,
-          description: toolDescription(secrets),
-          inputSchema: inputSchema(secrets),
-          isDeferred: false,
-        })
-      } catch (error) {
-        logError($, 'the tool was not registered', error)
-      }
+      await registerTool($, secrets)
     }
 
     const open = await read($, tasks)
@@ -294,6 +309,13 @@ export const register: Register = (on, options) => {
     } catch (error) {
       logError($, '/htl was not registered', error)
     }
+    return next(e)
+  })
+
+  // The VS Code extension runs the session through the SDK: session.start
+  // says isInteractive false, and the panel attaches right after it.
+  on('session.attach', async ($, e, next) => {
+    await registerTool($, secrets)
     return next(e)
   })
 
@@ -380,7 +402,12 @@ export const register: Register = (on, options) => {
     const card = (
       <Box flexDirection="column">
         <Text dimColor>
-          {cardHeader(task, at + 1, open.length, e.props.isFocused)}
+          {cardHeader(
+            task,
+            at + 1,
+            open.length,
+            surface === 'terminal' && !e.props.isFocused,
+          )}
         </Text>
         <Text weight="semibold">{task.title}</Text>
         <Text>

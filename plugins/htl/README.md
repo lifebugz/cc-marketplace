@@ -12,7 +12,8 @@ code), so it hands it over and waits. You log in, press `a` (Accept), add a
 message, and press Enter. Claude checks that the login worked, then deploys.
 (The demo uses a stand-in `fly` command, so nothing was really deployed.)
 
-Tested with Claude Code 2.1.305.
+Tested with Claude Code 2.1.308 in the terminal and the 2.1.306 VS Code
+extension.
 
 ## Install
 
@@ -61,8 +62,13 @@ Claude runs its check, then goes on with the deploy:
 ![The answer arrives as the user's message: task #1 accepted, the message, and a request to check it worked. Claude runs fly auth whoami and fly deploy and reports the app's address.](assets/answer.png)
 
 The pane opens by itself and takes the keyboard only when your prompt is empty,
-so it never steals keys while you type. If it does not have the keys, press
-**ctrl+x tab** to move into it. Run `/htl` at any time to open it.
+so it never steals keys while you type. In the terminal, if it does not have
+the keys, press **ctrl+x tab** to move into it. Run `/htl` at any time to open
+it.
+
+In the VS Code extension the pane sits beside the conversation, or above the
+prompt box in a narrow panel. Its buttons have no keys there: click them, then
+click **send** to send your answer, with or without a message.
 
 ### Two modes
 
@@ -143,8 +149,10 @@ Claude never feeds a password into `sudo` or a login prompt, even from
 
 - On the Claude mobile app the pane has no text field, so an answer goes
   without a message.
-- In a `claude -p` run or the Agent SDK, nobody is at the pane, so the tool is
-  not registered at all.
+- In a `claude -p` run, or the Agent SDK with no app attached, nobody is at the
+  pane, so the tool is not registered. The VS Code extension also runs Claude
+  through the SDK, but it attaches its panel, and the mod registers the tool
+  then.
 - Tasks live in the session's memory. They survive a reload of the mod, but
   `claude --resume` or `--continue` starts with no open tasks: numbers start
   again at #1, and earlier rejections are forgotten.

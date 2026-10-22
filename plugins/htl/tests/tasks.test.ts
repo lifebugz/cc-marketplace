@@ -411,12 +411,12 @@ describe('texts the user reads', () => {
     expect(statusLine(2)).toBe('2 tasks waiting for you · /htl')
   })
 
-  test('the card header shows the focus hint until the pane has the keys', () => {
-    expect(cardHeader(task(1), 1, 2, false)).toBe(
+  test('the card header shows the focus hint only when asked', () => {
+    expect(cardHeader(task(1), 1, 2, true)).toBe(
       '#1 · NOW · 1 of 2 · ctrl+x tab to use',
     )
     expect(
-      cardHeader(task(4, { ...LOGIN, mode: 'parallel' }), 2, 2, true),
+      cardHeader(task(4, { ...LOGIN, mode: 'parallel' }), 2, 2, false),
     ).toBe('#4 · PARALLEL · 2 of 2')
   })
 })

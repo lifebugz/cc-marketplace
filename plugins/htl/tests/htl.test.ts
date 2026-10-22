@@ -8,7 +8,7 @@ import type {
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 
 const TOOL = 'mcp__htl__assign_task'
-const SURFACES = ['terminal', 'desktop'] as const
+const SURFACES = ['terminal', 'desktop', 'vscode'] as const
 const COMPOSER = { kind: 'composer' } as const
 const PANE = {
   plugin: 'htl',
@@ -88,6 +88,7 @@ function setup(on: On): World {
     armedAtSubmit: [],
   }
   on('session.start', () => ({ cwd: '/work' }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
   on('tool.register', (_$, e) => {
     world.tools.push(e)
     return { value: { tool: `mcp__htl__${e.name}` } }
@@ -268,6 +269,21 @@ describe('the tool', () => {
     await start($, false)
     expect(world.tools).toHaveLength(0)
     expect(world.commands).toEqual(['htl'])
+  })
+
+  test('an app that attaches to an SDK session, such as VS Code, gets the tool once', async ($, on) => {
+    const world = setup(on)
+    await start($, false)
+    await $.session.attach({ surface: 'vscode', clientId: 'vscode-1' })
+    await $.session.attach({ surface: 'mobile', clientId: 'mobile:default' })
+    expect(world.tools.map(tool => tool.name)).toEqual(['assign_task'])
+  })
+
+  test('a phone that attaches to a terminal session adds no second tool', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await $.session.attach({ surface: 'mobile', clientId: 'mobile:default' })
+    expect(world.tools).toHaveLength(1)
   })
 
   test(
@@ -818,23 +834,31 @@ for (const surface of SURFACES) {
       await pane.unmount()
     })
 
-    test('the focus hint shows until the pane has the keys', async ($, on) => {
-      setup(on)
-      await start($)
-      await assign($, LOGIN)
-      const pane = await $.ui.mount({
-        ...PANE,
-        surface,
-        props: { ...PANE.props, isFocused: false },
-      })
-      expect(
-        await pane.find({
-          type: 'Text',
-          text: '#1 · NOW · 1 of 1 · ctrl+x tab to use',
-        }),
-      ).toBeDefined()
-      await pane.unmount()
-    })
+    test(
+      surface === 'terminal'
+        ? 'the ctrl+x tab hint shows until the pane has the keys'
+        : 'no ctrl+x tab hint: the user clicks the pane',
+      async ($, on) => {
+        setup(on)
+        await start($)
+        await assign($, LOGIN)
+        const pane = await $.ui.mount({
+          ...PANE,
+          surface,
+          props: { ...PANE.props, isFocused: false },
+        })
+        expect(
+          await pane.find({
+            type: 'Text',
+            text:
+              surface === 'terminal'
+                ? '#1 · NOW · 1 of 1 · ctrl+x tab to use'
+                : /^#1 · NOW · 1 of 1$/,
+          }),
+        ).toBeDefined()
+        await pane.unmount()
+      },
+    )
   })
 }
 

@@ -440,14 +440,14 @@ export function cardHeader(
   task: HtlTask,
   position: number,
   total: number,
-  isFocused: boolean,
+  showsFocusHint: boolean,
 ): string {
   const parts = [
     `#${String(task.id)}`,
     task.mode.toUpperCase(),
     `${String(position)} of ${String(total)}`,
   ]
-  if (!isFocused) {
+  if (showsFocusHint) {
     parts.push('ctrl+x tab to use')
   }
   return parts.join(' · ')
