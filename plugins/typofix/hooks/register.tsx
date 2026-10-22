@@ -17,7 +17,6 @@ import {
   focusShortcut,
   hunspellDictionary,
   isDictionaryLanguage,
-  isDraft,
   listSignature,
   maskCode,
   mergeSpans,
@@ -59,8 +58,6 @@ interface Live {
   edited: string
   checkedText: string | undefined
   spans: readonly Span[]
-  hasDraft: boolean
-  isChecked: boolean
   isOffering: boolean
   hiddenFor: string | undefined
   checkTimer: Timer | undefined
@@ -110,8 +107,6 @@ const SPELL_SERVER_TIMEOUT = /NSSpellServer dataFromChecking\w* timed out/
 
 const issues = atom({ plugin: 'typofix', key: 'issues' } as const, [])
 const isHidden = atom({ plugin: 'typofix', key: 'isHidden' } as const, false)
-const hasDraft = atom({ plugin: 'typofix', key: 'hasDraft' } as const, false)
-const isChecked = atom({ plugin: 'typofix', key: 'isChecked' } as const, false)
 const isOffering = atom(
   { plugin: 'typofix', key: 'isOffering' } as const,
   false,
@@ -183,8 +178,6 @@ const live: Live = {
   edited: '',
   checkedText: undefined,
   spans: [],
-  hasDraft: false,
-  isChecked: false,
   isOffering: false,
   hiddenFor: undefined,
   checkTimer: undefined,
@@ -213,7 +206,6 @@ function forgetDraft(): void {
   live.draftText = ''
   live.checkedText = undefined
   live.spans = []
-  live.hasDraft = false
   live.hiddenFor = undefined
 }
 
@@ -232,12 +224,9 @@ function isLateSubmit(text: string): boolean {
 
 async function resetState($: EngineInterface): Promise<void> {
   live.rephrase = 'idle'
-  live.isChecked = false
   live.isOffering = false
   await update($, issues, () => [])
   await update($, isHidden, () => false)
-  await update($, hasDraft, () => false)
-  await update($, isChecked, () => false)
   await update($, isOffering, () => false)
   await update($, rephrase, () => IDLE)
 }
@@ -256,28 +245,12 @@ async function setOffering($: EngineInterface, offer: boolean): Promise<void> {
   await update($, isOffering, () => live.isOffering)
 }
 
-async function setChecked($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.isChecked) {
-    return
-  }
-  live.isChecked = value
-  await update($, isChecked, () => live.isChecked)
-}
-
 async function writeIssues(
   $: EngineInterface,
   spans: readonly Span[],
 ): Promise<void> {
   live.spans = spans
   await update($, issues, () => live.spans.map(toIssue))
-}
-
-async function setDraft($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.hasDraft) {
-    return
-  }
-  live.hasDraft = value
-  await update($, hasDraft, () => live.hasDraft)
 }
 
 async function setRephrase($: EngineInterface, value: Rephrase): Promise<void> {
@@ -308,8 +281,6 @@ async function onDraftChange(
   if (live.spans.length !== before.length) {
     await writeIssues($, live.spans)
   }
-  await setDraft($, isDraft(text))
-  await setChecked($, false)
   await settleRephrase($)
 }
 
@@ -348,7 +319,6 @@ async function runSpellCheck(
     live.spans = shiftSpans(live.spans, diffSplice(live.draftText, text), text)
     live.draftText = text
   }
-  await setDraft($, isDraft(text))
   if (text.trim() === '' || text.startsWith('/')) {
     if (live.spans.length > 0) {
       await writeIssues($, [])
@@ -360,9 +330,6 @@ async function runSpellCheck(
   const found = await checkText($, text)
   if (found === undefined) {
     live.checkedText = text
-    if (live.backend === null) {
-      await setChecked($, true)
-    }
     return
   }
   const ignored = await readIgnored($)
@@ -380,7 +347,6 @@ async function runSpellCheck(
   const hadSpans = live.spans.length > 0
   await showIssues($, fresh)
   live.checkedText = text
-  await setChecked($, true)
   await setOffering($, offeredAt(text, again.cursor) !== undefined)
   await paintNow($, text, hadSpans)
 }
@@ -799,7 +765,6 @@ async function pickChoice(
   live.draftText = applied.text
   live.checkedText = applied.text
   await writeIssues($, shifted)
-  await setDraft($, isDraft(applied.text))
   await setOffering($, false)
   scheduleCheck($, applied.text)
 }
@@ -825,8 +790,6 @@ async function pickRewrite($: EngineInterface, rewrite: string): Promise<void> {
   live.draftText = rewrite
   await setRephrase($, IDLE)
   await writeIssues($, [])
-  await setDraft($, isDraft(rewrite))
-  await setChecked($, false)
   await setOffering($, false)
   scheduleCheck($, rewrite)
 }
@@ -1026,8 +989,6 @@ export const register: Register = (on, options) => {
     }
     await update($, issues, () => live.spans.map(toIssue))
     await update($, isHidden, () => false)
-    await update($, hasDraft, () => live.hasDraft)
-    await setChecked($, false)
     await setOffering($, false)
     return next(e)
   })
@@ -1055,11 +1016,9 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) {
       return next(e)
     }
-    const [list, hidden, draft, checked, offering, phrase] = await Promise.all([
+    const [list, hidden, offering, phrase] = await Promise.all([
       read($, issues),
       read($, isHidden),
-      read($, hasDraft),
-      read($, isChecked),
       read($, isOffering),
       read($, rephrase),
     ])
@@ -1153,34 +1112,8 @@ export const register: Register = (on, options) => {
       )
     }
 
-    if (offering || hidden || (list.length === 0 && !draft)) {
+    if (offering || hidden || list.length === 0) {
       return next(e)
-    }
-
-    if (list.length === 0) {
-      if (!checked) {
-        return next(e)
-      }
-      const verdict = live.backend === null ? '' : 'no typos · '
-      return (
-        <Box columnGap={1}>
-          <Text dimColor>
-            typofix · {verdict}
-            {isClicked ? '' : `${live.shortcut}, then`}
-          </Text>
-          <Button
-            key="rephrase"
-            hotkey="r"
-            plain
-            dimColor
-            onPress={() => {
-              press($, rephraseDraft($))
-            }}
-          >
-            Rephrase
-          </Button>
-        </Box>
-      )
     }
 
     const room = Math.max(1, Math.min(MAX_LISTED, e.props.maxRows - 3))

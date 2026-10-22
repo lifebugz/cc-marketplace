@@ -9,7 +9,6 @@ import {
   focusShortcut,
   hunspellDictionary,
   isDictionaryLanguage,
-  isDraft,
   maskCode,
   mergeSpans,
   offeredSpan,
@@ -771,10 +770,4 @@ test('the offered word is the one that ends at the cursor and has fixes', () => 
   expect(offeredSpan([teh, wiht], tokenAt(text, 7))).toBe(teh)
   expect(offeredSpan([teh, wiht], tokenAt(text, 12))).toBeUndefined()
   expect(offeredSpan([teh, wiht], tokenAt(text, 3))).toBeUndefined()
-})
-
-test('a draft is three words or more and not a slash command', () => {
-  expect(isDraft('He go store')).toBe(true)
-  expect(isDraft('He go')).toBe(false)
-  expect(isDraft('/rephrase He go store')).toBe(false)
 })

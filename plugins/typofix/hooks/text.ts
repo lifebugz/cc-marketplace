@@ -40,7 +40,6 @@ interface IspellWord {
 }
 
 const MAX_CHOICES = 3
-const DRAFT_WORDS = 3
 const DEFAULT_FOCUS_KEY = 'ctrl+x tab'
 const FOCUS_ACTION = 'abovePrompt:focus'
 const FOCUS_CONTEXTS = new Set(['Chat', 'Global'])
@@ -739,14 +738,6 @@ export function decorationsFor(
     color: span.kind === 'spelling' ? 'error' : 'warning',
     ...(span === offered && { bold: true }),
   }))
-}
-
-export function wordCount(text: string): number {
-  return text.match(TOKEN)?.length ?? 0
-}
-
-export function isDraft(text: string): boolean {
-  return !text.startsWith('/') && wordCount(text) >= DRAFT_WORDS
 }
 
 export function toIssue({ id, original, choices, kind }: Span): TypoIssue {

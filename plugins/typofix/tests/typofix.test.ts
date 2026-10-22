@@ -173,6 +173,10 @@ const macReads =
 const macFinds = (...issues: readonly MacIssue[]): Process =>
   macReads(undefined, ...issues)
 
+// The band shows Rephrase only next to a typo; one mid-draft keeps it in view.
+const STOR_DRAFT = 'He go to the stor today'
+const storTypo = (): Process => macFinds({ word: 'stor', choices: ['store'] })
+
 interface FillEcho {
   readonly afterFill: (text: string) => Promise<void>
   readonly count: () => number
@@ -596,7 +600,7 @@ describe('live spelling', () => {
     expect(world.filled).toEqual(['café über the'])
   })
 
-  test('with no spell checker it toasts once and the band still offers Rephrase', async ($, on) => {
+  test('with no spell checker it toasts once and the band shows nothing', async ($, on) => {
     const world = setup(on, () => 'missing', 'He go to store')
     await startAndCheck($, world)
     await startAndCheck($, world)
@@ -613,8 +617,9 @@ describe('live spelling', () => {
       'no spell checker or dictionary found (Linux: install enchant-2 or hunspell and a dictionary such as en_US). /rephrase still works.',
     ])
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    expect(await band.find({ key: 'rephrase' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /no typos/ })).toBeUndefined()
+    expect(
+      await band.find({ type: 'Text', text: 'drawn by Claude Code' }),
+    ).toBeDefined()
   })
 
   test('two first checks that overlap with no spell checker give up together', async ($, on) => {
@@ -652,12 +657,18 @@ describe('live spelling', () => {
     expect(world.toasts).toEqual([warning])
   })
 
-  test('the band says no typos once a check finished and found none', async ($, on) => {
+  test('a draft with no typos shows nothing in the band', async ($, on) => {
     const world = setup(on, macFinds(), 'fix the bug with tests')
     await startAndCheck($, world)
 
-    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    expect(await band.find({ type: 'Text', text: /no typos/ })).toBeDefined()
+    for (const surface of [...SURFACES, 'vscode'] as const) {
+      const band = await $.ui.mount({ ...BAND, surface })
+      expect(await band.find({ type: 'Text', text: /typofix/ })).toBeUndefined()
+      expect(
+        await band.find({ type: 'Text', text: 'drawn by Claude Code' }),
+      ).toBeDefined()
+      await band.unmount()
+    }
   })
 
   test('the band claims nothing while no check has finished for the draft', async ($, on) => {
@@ -1521,7 +1532,7 @@ describe('marking the word', () => {
 
 describe('rephrase', () => {
   test('r shows 3 rewrites, and 1 fills the first', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     await startAndCheck($, world)
 
     for (const surface of SURFACES) {
@@ -1544,7 +1555,7 @@ describe('rephrase', () => {
   })
 
   test('a malformed reply shows the failure', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     world.replies = [
       { isAnswered: true, text: 'Sure! Here you go.', usage: USAGE },
     ]
@@ -1561,7 +1572,7 @@ describe('rephrase', () => {
   })
 
   test('a failed model call shows why, and Try again rephrases', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     world.replies = [
       {
         isAnswered: false,
@@ -1584,7 +1595,7 @@ describe('rephrase', () => {
   })
 
   test('a model call Claude Code refuses to send shows why, in the band and in /rephrase', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     world.replies = ['refused', 'refused']
     await startAndCheck($, world)
 
@@ -1625,19 +1636,19 @@ describe('rephrase', () => {
   })
 
   test('a draft that changed before the pick gives a toast and no fill', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     await startAndCheck($, world)
 
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
     await band.press({ key: 'rephrase' })
-    world.draft = 'He go to the store today'
+    world.draft = `${STOR_DRAFT} again`
     await band.press({ key: 'rewrite-2' })
     expect(world.filled).toEqual([])
     expect(world.toasts).toEqual(['the draft changed; press r again'])
   })
 
   test('a rewrite the prompt box refuses gives a toast', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     await startAndCheck($, world)
 
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -1915,22 +1926,16 @@ describe('the VS Code panel', () => {
   })
 
   test('a Rephrase clicked right after typing is not cancelled by the next read', async ($, on) => {
-    const world = setup(
-      on,
-      macFinds(),
-      'He go to the store',
-      undefined,
-      PANEL_ENV,
-    )
+    const world = setup(on, storTypo(), STOR_DRAFT, undefined, PANEL_ENV)
     world.modelDelayMs = 2000
     await openPanel($, world)
     const band = await $.ui.mount(PANEL_BAND)
 
-    world.draft = 'He go to the store now'
+    world.draft = `${STOR_DRAFT} now`
     await band.press({ key: 'rephrase' })
     await world.clock.advance(3000)
     expect(await band.find({ key: 'rewrite-1' })).toBeDefined()
-    expect(world.prompts[0]).toContain('He go to the store now')
+    expect(world.prompts[0]).toContain(`${STOR_DRAFT} now`)
   })
 
   test('with no panel attached, a non-interactive session never reads the draft', async ($, on) => {
@@ -2021,7 +2026,7 @@ describe('a prompt sent while the box holds another draft', () => {
   })
 
   test('a late prompt keeps an open rephrase', async ($, on) => {
-    const world = setup(on, macFinds(), 'He go to the store')
+    const world = setup(on, storTypo(), STOR_DRAFT)
     await startAndCheck($, world)
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
     await band.press({ key: 'rephrase' })

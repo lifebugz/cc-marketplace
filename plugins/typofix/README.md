@@ -7,11 +7,13 @@ in a second language.
 - **Live check.** When you stop typing for 0.4 seconds, the mod checks the draft
   with your computer's spell checker. Each mistake gets an underline (your
   theme's error color for spelling, its warning color for grammar). A band above
-  the prompt lists the mistakes with their fixes. It never blocks Enter.
-- **Rephrase with Haiku, only when you ask.** Press `r` in the band, or run
-  `/rephrase <text>`. Haiku writes 3 versions of the whole draft: **fixed**
-  (only spelling and grammar), **natural** (how a native speaker would say it)
-  and **short**. Pick one, and it replaces the draft.
+  the prompt lists the mistakes with their fixes; with no mistakes it shows
+  nothing. It never blocks Enter.
+- **Rephrase with Haiku, only when you ask.** Press `r` in the band while it
+  lists mistakes, or run `/rephrase <text>` for any text. Haiku writes 3
+  versions of the whole draft: **fixed** (only spelling and grammar),
+  **natural** (how a native speaker would say it) and **short**. Pick one, and
+  it replaces the draft.
 
 ![typofix finds whaat and youu while a sentence is typed, offers happen right above the prompt for happpen, and Tab takes it](media/typing.gif)
 
@@ -49,7 +51,7 @@ Press **ctrl+x tab** (or your own shortcut, below), then the letter. The word is
 fixed and you are back in the prompt, ready to type. The letters never use `i`,
 `r`, `s` or `x`.
 
-![ctrl+x tab then c turns youu into you; ctrl+x tab then a turns whaat into what, and the band says no typos](media/band.gif)
+![ctrl+x tab then c turns youu into you; ctrl+x tab then a turns whaat into what, and the band goes away](media/band.gif)
 
 In the band you can also press Tab to walk to `ignore` and Enter to accept that
 word from now on (saved between sessions), `r` to rephrase the draft with Haiku,
@@ -57,8 +59,9 @@ word from now on (saved between sessions), `r` to rephrase the draft with Haiku,
 prompt. With [fullscreen rendering](https://code.claude.com/docs/en/fullscreen)
 on, you can click any fix instead.
 
-**Rephrase the whole draft.** Press the band shortcut and then `r`. Haiku writes
-3 versions, and a number puts one in the prompt box:
+**Rephrase the whole draft.** While the band lists mistakes, press the band
+shortcut and then `r`. Haiku writes 3 versions, and a number puts one in the
+prompt box. For a draft with no mistakes, use `/rephrase` (below):
 
 ![ctrl+x tab then r: Haiku rewrites "yesterday he go to the store and buyed three apple" three ways, and 2 puts the natural version in the prompt](media/rephrase.gif)
 
@@ -137,8 +140,8 @@ in one language, set it.
 | Linux    | `enchant-2` or `hunspell` with a dictionary (install one). Spelling only                                | Yes         |
 | Windows  | Not in this version                                                                                     | Yes         |
 
-With no spell checker, the mod shows one notice, and `r` and `/rephrase` still
-work.
+With no spell checker, the mod shows one notice and no band, and `/rephrase`
+still works.
 
 ## VS Code
 
