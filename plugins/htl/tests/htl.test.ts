@@ -5,7 +5,14 @@ import type {
   RegisteredToolSpec,
   UiPane,
 } from 'claude-code'
-import { describe, expect, test, type Engine } from 'claude-code/testing'
+import {
+  describe,
+  expect,
+  mock,
+  test,
+  type Engine,
+  type MockClock,
+} from 'claude-code/testing'
 
 const TOOL = 'mcp__htl__assign_task'
 const SURFACES = ['terminal', 'desktop', 'vscode'] as const
@@ -61,9 +68,11 @@ interface World {
   ran: string[]
   isPlaced: boolean
   isOpenRefused: boolean
+  clock: MockClock
   dropSubmit: { readonly task: number; readonly reason: string } | undefined
   holdSubmit: Promise<void> | undefined
   arrivals: (() => void)[]
+  toasted: (() => void)[]
   isArmed: boolean
   armedAtSubmit: boolean[]
 }
@@ -81,9 +90,11 @@ function setup(on: On): World {
     ran: [],
     isPlaced: true,
     isOpenRefused: false,
+    clock: mock.clock(on),
     dropSubmit: undefined,
     holdSubmit: undefined,
     arrivals: [],
+    toasted: [],
     isArmed: false,
     armedAtSubmit: [],
   }
@@ -129,6 +140,9 @@ function setup(on: On): World {
   })
   on('ui.toast', (_$, e) => {
     world.toasts.push(e.text)
+    for (const toasted of world.toasted.splice(0)) {
+      toasted()
+    }
     return { value: undefined }
   })
   on('ui.status', (_$, e) => {
@@ -224,11 +238,15 @@ async function type($: Engine, text: string): Promise<unknown> {
   return $.prompt.submit({ text, wait: false, origin: COMPOSER })
 }
 
-async function runHtl($: Engine): Promise<{ text?: string | undefined }> {
+async function runHtl(
+  $: Engine,
+  args = '',
+  origin: PromptOrigin = COMPOSER,
+): Promise<{ text?: string | undefined }> {
   return $.command.run({
     command: 'htl',
-    args: '',
-    origin: COMPOSER,
+    args,
+    origin,
     presentation: { isFullscreen: true, columns: 120 },
   })
 }
@@ -560,6 +578,159 @@ describe('parallel mode', () => {
     })
     expect(await bash($)).toMatchObject({ result: 'ran' })
     expect(world.ran).toEqual(['Bash'])
+  })
+})
+
+describe('/htl from a phone or claude.ai', () => {
+  const BRIDGE = { kind: 'bridge' } as const
+  const USAGE =
+    'Answer a task with /htl accept, /htl reject or /htl handback ("you can do this") and its number, then an optional message: /htl accept 1 done with my work account.'
+
+  test('a remote /htl lists the open tasks as text, and still opens the pane here', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    await assign($, DNS)
+    expect(await runHtl($, '', BRIDGE)).toEqual({
+      text: [
+        'Open HTL tasks:',
+        '#1 · NOW · Log in to the GitHub CLI\nlogin: The login needs a browser and a 2FA code.\nRun `! gh auth login` and finish the browser login.',
+        '#2 · PARALLEL · Point the CNAME at x.vercel.app\nno access: I have no access to the registrar.\nAt your registrar, set `www` CNAME to `x.vercel.app`.',
+        USAGE,
+      ].join('\n\n'),
+    })
+    expect(world.opened.at(-1)?.closeOnEscape).toBe(true)
+  })
+
+  test('a remote /htl still lists the tasks when the pane cannot open', async ($, on) => {
+    const world = setup(on)
+    world.isOpenRefused = true
+    await start($)
+    await assign($, LOGIN)
+    expect((await runHtl($, '', BRIDGE)).text).toContain(
+      '#1 · NOW · Log in to the GitHub CLI',
+    )
+  })
+
+  test('/htl typed on this machine answers with the pane only', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    expect((await runHtl($)).text).toBeUndefined()
+    expect(world.opened.at(-1)?.closeOnEscape).toBe(true)
+  })
+
+  test('/htl accept with a message answers the task like the pane', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    const arrived = latch()
+    world.arrivals.push(arrived.open)
+    expect(await runHtl($, 'Accept #1 used my work account', BRIDGE)).toEqual({
+      text: 'Sending your answer to task #1 "Log in to the GitHub CLI": accepted. If /htl still lists the task, it was not sent.',
+    })
+    expect(world.submitted).toEqual([])
+    await world.clock.advance(100)
+    await arrived.done
+    expect(world.submitted.at(-1)).toEqual({
+      text: 'HTL task #1 "Log in to the GitHub CLI": accepted, I did it.\nMy message: used my work account\nCheck it worked (run `gh auth status` or re-run what failed), then continue.',
+      context: [],
+      origin: { kind: 'plugin', name: 'htl', asUser: true },
+    })
+    expect(await runHtl($, '', BRIDGE)).toEqual({ text: 'No open HTL tasks.' })
+    expect(await bash($)).toMatchObject({ result: 'ran' })
+  })
+
+  test('a task rejected by command is refused when assigned again', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    await assign($, DNS)
+    const arrived = latch()
+    world.arrivals.push(arrived.open)
+    await runHtl($, 'reject 2', BRIDGE)
+    await world.clock.advance(100)
+    await arrived.done
+    expect(world.submitted.at(-1)?.text).toBe(
+      "HTL task #2 \"Point the CNAME at x.vercel.app\": rejected, I won't do it.\nDon't assume it's done. Find another way, or tell me what stays blocked.",
+    )
+    expect(await assign($, DNS)).toMatchObject({
+      result: expect.stringContaining('The user already rejected task #2'),
+    })
+  })
+
+  test('a second answer to the same task is not sent', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    await assign($, LOGIN)
+    await runHtl($, 'accept 1', BRIDGE)
+    expect(await runHtl($, 'reject 1 changed my mind', BRIDGE)).toEqual({
+      text: 'No open HTL tasks.',
+    })
+    const arrived = latch()
+    world.arrivals.push(arrived.open)
+    await world.clock.advance(100)
+    await arrived.done
+    expect(world.submitted.map(one => one.text.split('\n')[0])).toEqual([
+      'HTL task #1 "Log in to the GitHub CLI": accepted, I did it.',
+    ])
+  })
+
+  test('an unknown task, a bad command or another mod answers nothing', async ($, on) => {
+    const world = setup(on)
+    await start($)
+    expect(await runHtl($, 'accept 1', BRIDGE)).toEqual({
+      text: 'No open HTL tasks.',
+    })
+    await assign($, LOGIN)
+    expect(await runHtl($, 'accept 9', BRIDGE)).toEqual({
+      text: 'No open task #9. Open: #1.',
+    })
+    for (const args of ['done', 'accept', 'accept one', 'maybe 1']) {
+      expect(await runHtl($, args, BRIDGE)).toEqual({ text: USAGE })
+    }
+    expect(
+      await runHtl($, 'accept 1', {
+        kind: 'plugin',
+        name: 'other',
+        asUser: true,
+      }),
+    ).toEqual({
+      text: 'Only you can answer an HTL task: type the command yourself, here or through Remote Control.',
+    })
+
+    await world.clock.advance(1000)
+    expect(world.submitted).toEqual([])
+    expect((await runHtl($, '', BRIDGE)).text).toContain(
+      '#1 · NOW · Log in to the GitHub CLI',
+    )
+    expect(await bash($)).toEqual({
+      deny: 'Waiting for the user to finish HTL task #1 "Log in to the GitHub CLI". End your turn now.',
+    })
+  })
+
+  test('an answer by command that is dropped lists the task again', async ($, on) => {
+    const world = setup(on)
+    world.dropSubmit = { task: 1, reason: 'a hook refused it' }
+    await start($)
+    await assign($, LOGIN)
+    const toasted = latch()
+    world.toasted.push(toasted.open)
+    await runHtl($, 'reject 1', BRIDGE)
+    await world.clock.advance(100)
+    await toasted.done
+    expect(world.logs).toContain(
+      'htl: the answer to task #1 was not sent: a hook refused it',
+    )
+    expect(world.toasts.at(-1)).toBe(
+      'htl: the answer to task #1 was not sent. Answer again in /htl.',
+    )
+    expect((await runHtl($, '', BRIDGE)).text).toContain(
+      '#1 · NOW · Log in to the GitHub CLI',
+    )
+    expect(await bash($)).toEqual({
+      deny: 'Waiting for the user to finish HTL task #1 "Log in to the GitHub CLI". End your turn now.',
+    })
   })
 })
 

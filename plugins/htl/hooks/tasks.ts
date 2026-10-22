@@ -23,6 +23,8 @@ export const BLOCKERS: readonly Blocker[] = [
   'no_access',
 ]
 export const MODES: readonly Mode[] = ['now', 'parallel']
+const DECISIONS: readonly Decision[] = ['accept', 'reject', 'handback']
+const REMOTE_ORIGINS: readonly PromptOrigin['kind'][] = ['bridge', 'slack-ping']
 const ANSWERING_ORIGINS: readonly PromptOrigin['kind'][] = [
   'composer',
   'bridge',
@@ -75,6 +77,44 @@ function isRefused(task: ClosedTask): task is Refused {
 
 export function answersTasks(kind: PromptOrigin['kind']): boolean {
   return isOneOf(ANSWERING_ORIGINS, kind)
+}
+
+export function isRemote(kind: PromptOrigin['kind']): boolean {
+  return isOneOf(REMOTE_ORIGINS, kind)
+}
+
+export type HtlCommand =
+  | { readonly kind: 'open' }
+  | { readonly kind: 'usage' }
+  | {
+      readonly kind: 'answer'
+      readonly decision: Decision
+      readonly taskId: number
+      readonly message: string
+    }
+
+const ANSWER_ARGS = /^(\S+)\s+#?(\d+)(?:\s+([\s\S]*))?$/
+
+export function parseHtlArgs(args: string): HtlCommand {
+  const trimmed = args.trim()
+  if (trimmed === '') {
+    return { kind: 'open' }
+  }
+  const match = ANSWER_ARGS.exec(trimmed)
+  const decision = match?.[1]?.toLowerCase()
+  const id = match?.[2]
+  if (decision === undefined || id === undefined) {
+    return { kind: 'usage' }
+  }
+  if (!isOneOf(DECISIONS, decision)) {
+    return { kind: 'usage' }
+  }
+  return {
+    kind: 'answer',
+    decision,
+    taskId: Number(id),
+    message: (match?.[3] ?? '').trim(),
+  }
 }
 
 function textField(
@@ -368,6 +408,35 @@ export function assignedToast(task: HtlTask): string {
 
 export function decisionToast(task: HtlTask, decision: Decision): string {
   return `htl: task #${String(task.id)} ${decisionPast(decision)}`
+}
+
+export const HTL_USAGE =
+  'Answer a task with /htl accept, /htl reject or /htl handback ("you can do this") and its number, then an optional message: /htl accept 1 done with my work account.'
+
+export function taskListText(tasks: readonly HtlTask[]): string {
+  const cards = tasks.map(task =>
+    [
+      `#${String(task.id)} · ${task.mode.toUpperCase()} · ${task.title}`,
+      `${blockerLabel(task.blocker)}: ${task.why}`,
+      task.steps,
+    ].join('\n'),
+  )
+  return ['Open HTL tasks:', ...cards, HTL_USAGE].join('\n\n')
+}
+
+export const NOT_YOURS =
+  'Only you can answer an HTL task: type the command yourself, here or through Remote Control.'
+
+export function answeringText(task: HtlTask, decision: Decision): string {
+  return `Sending your answer to task ${quoted(task)}: ${decisionPast(decision)}. If /htl still lists the task, it was not sent.`
+}
+
+export function notOpenText(taskId: number, open: readonly HtlTask[]): string {
+  if (open.length === 0) {
+    return 'No open HTL tasks.'
+  }
+  const ids = open.map(task => `#${String(task.id)}`).join(', ')
+  return `No open task #${String(taskId)}. Open: ${ids}.`
 }
 
 export function notSentToast(task: HtlTask): string {

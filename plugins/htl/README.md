@@ -12,8 +12,8 @@ code), so it hands it over and waits. You log in, press `a` (Accept), add a
 message, and press Enter. Claude checks that the login worked, then deploys.
 (The demo uses a stand-in `fly` command, so nothing was really deployed.)
 
-Tested with Claude Code 2.1.308 in the terminal and the 2.1.306 VS Code
-extension.
+Tested with Claude Code 2.1.308 in the terminal and the Desktop app, the 2.1.306
+VS Code extension, and Remote Control from claude.ai.
 
 ## Install
 
@@ -69,6 +69,20 @@ it.
 In the VS Code extension the pane sits beside the conversation, or above the
 prompt box in a narrow panel. Its buttons have no keys there: click them, then
 click **send** to send your answer, with or without a message.
+
+### Answer without the pane
+
+`/htl accept 1`, `/htl reject 1` and `/htl handback 1` ("You can do this")
+answer task #1 the same way the pane does. Anything after the number is your
+message: `/htl accept 1 used my work account`.
+
+With [Remote Control](https://code.claude.com/docs/en/remote-control), on your
+phone or at claude.ai, the pane never shows: it draws only in the app that runs
+the session on your computer. There, `/htl` lists the open tasks as text, and
+you answer with the commands above. If another mod refuses your answer, only
+your computer shows the notice, so run `/htl` again: a task it still lists was
+not answered. A message you type there also lifts the `now` gate, but the task
+stays open until you answer it.
 
 ### Two modes
 
@@ -147,12 +161,15 @@ Claude never feeds a password into `sudo` or a login prompt, even from
 
 ## Limits
 
-- On the Claude mobile app the pane has no text field, so an answer goes
-  without a message.
+- The Claude mobile app and claude.ai do not draw the pane; answer there with
+  `/htl` (see [Answer without the pane](#answer-without-the-pane)).
 - In a `claude -p` run, or the Agent SDK with no app attached, nobody is at the
-  pane, so the tool is not registered. The VS Code extension also runs Claude
-  through the SDK, but it attaches its panel, and the mod registers the tool
-  then.
+  pane, so the tool is not registered. The VS Code extension and the Desktop app
+  also run Claude through the SDK, but they attach their own view, and the mod
+  registers the tool then.
+- A cloud session at claude.ai/code loads htl only if your organization
+  installs it through managed settings, never from your computer or your
+  repository's settings, and it shows nothing a mod draws.
 - Tasks live in the session's memory. They survive a reload of the mod, but
   `claude --resume` or `--continue` starts with no open tasks: numbers start
   again at #1, and earlier rejections are forgotten.

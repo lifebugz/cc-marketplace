@@ -3,10 +3,13 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Decision, HtlTask, SecretsMode, View } from '../types'
 import {
+  HTL_USAGE,
+  NOT_YOURS,
   SUBAGENT_REFUSAL,
   TOOL,
   TOOL_NAME,
   answersTasks,
+  answeringText,
   assignedText,
   assignedToast,
   blockerLabel,
@@ -17,13 +20,18 @@ import {
   decisionToast,
   gateDenial,
   inputSchema,
+  isRemote,
+  notOpenText,
   notSentToast,
+  parseHtlArgs,
   parseRequest,
   refusalText,
   reminderLine,
   secretsMode,
   statusLine,
+  taskListText,
   toolDescription,
+  unreachable,
   validateRequest,
 } from './tasks'
 
@@ -31,6 +39,10 @@ const PANE = 'htl'
 const PANE_TITLE = 'HTL tasks'
 const MAX_CLOSED = 100
 const FIRST_CARD: View = { step: 'decide', taskId: null }
+// The engine refuses $.prompt.submit from a command.run hook that still holds
+// the turn ("submit from a later event"), so a command's answer goes out on a
+// timer that fires once the command has finished.
+const COMMAND_SEND_DELAY_MS = 100
 
 const tasks = atom({ plugin: 'htl', key: 'tasks' } as const, [])
 const closed = atom({ plugin: 'htl', key: 'closed' } as const, [])
@@ -239,6 +251,15 @@ async function decide(
   if (committed === undefined) {
     return
   }
+  await deliverAnswer($, committed, decision, message)
+}
+
+async function deliverAnswer(
+  $: EngineInterface,
+  committed: Committed,
+  decision: Decision,
+  message: string,
+): Promise<void> {
   const { task } = committed
   const failure = await deliver($, decisionPrompt(task, decision, message))
   if (failure === undefined) {
@@ -247,6 +268,33 @@ async function decide(
   }
   logError($, `the answer to task #${String(task.id)} was not sent`, failure)
   await serial(async () => rollback($, committed))
+}
+
+// A remote client (Remote Control on a phone or at claude.ai) never draws the
+// pane, so it gets the tasks as text; the pane still opens on this machine.
+async function openPane(
+  $: EngineInterface,
+  open: readonly HtlTask[],
+  isFromRemote: boolean,
+): Promise<{ text?: string }> {
+  if (open.length === 0) {
+    return { text: 'No open HTL tasks.' }
+  }
+  try {
+    const opened = await $.ui.open({
+      id: PANE,
+      title: PANE_TITLE,
+      focus: true,
+      closeOnEscape: true,
+    })
+    showStatus($, opened.isPlaced, open.length)
+  } catch (error) {
+    if (!isFromRemote) {
+      return { text: `htl: the pane did not open: ${messageOf(error)}` }
+    }
+    logError($, 'the pane did not open', error)
+  }
+  return isFromRemote ? { text: taskListText(open) } : {}
 }
 
 async function pickDecision(
@@ -303,7 +351,8 @@ export const register: Register = (on, options) => {
     try {
       await $.command.register({
         name: 'htl',
-        description: 'Show the tasks Claude assigned to you',
+        description: 'Show the tasks Claude assigned to you, or answer one',
+        argumentHint: '[accept|reject|handback <number> [message]]',
         immediate: true,
       })
     } catch (error) {
@@ -362,23 +411,35 @@ export const register: Register = (on, options) => {
     return open.length === 0 ? result : { ...result, text: reminderLine(open) }
   })
 
-  on('command.run', { command: 'htl' }, async $ => {
-    const open = await read($, tasks)
-    if (open.length === 0) {
-      return { text: 'No open HTL tasks.' }
+  // The commit is awaited so the reply names what really happened.
+  on('command.run', { command: 'htl' }, async ($, e) => {
+    const command = parseHtlArgs(e.args)
+    switch (command.kind) {
+      case 'open':
+        return openPane($, await read($, tasks), isRemote(e.origin.kind))
+      case 'answer': {
+        if (!answersTasks(e.origin.kind)) {
+          return { text: NOT_YOURS }
+        }
+        const { taskId, decision, message } = command
+        const committed = await serial(async () => commit($, taskId, decision))
+        if (committed === undefined) {
+          return { text: notOpenText(taskId, await read($, tasks)) }
+        }
+        $.clock.after(COMMAND_SEND_DELAY_MS, () => {
+          deliverAnswer($, committed, decision, message).catch(
+            (error: unknown) => {
+              logError($, 'the decision failed', error)
+            },
+          )
+        })
+        return { text: answeringText(committed.task, decision) }
+      }
+      case 'usage':
+        return { text: HTL_USAGE }
+      default:
+        return unreachable(command)
     }
-    try {
-      const opened = await $.ui.open({
-        id: PANE,
-        title: PANE_TITLE,
-        focus: true,
-        closeOnEscape: true,
-      })
-      showStatus($, opened.isPlaced, open.length)
-    } catch (error) {
-      return { text: `htl: the pane did not open: ${messageOf(error)}` }
-    }
-    return {}
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
