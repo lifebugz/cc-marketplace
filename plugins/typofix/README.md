@@ -49,14 +49,15 @@ lists up to 8 mistakes, and each of the first 22 fixes gets its own letter:
 
 Press **ctrl+x tab** (or your own shortcut, below), then the letter. The word is
 fixed and you are back in the prompt, ready to type. The letters never use `i`,
-`r`, `s` or `x`.
+`r`, `s` or `x`, and never a digit: a row's digit (`1` to `8`) means "this word
+is not a typo" (see [Words that are not typos](#words-that-are-not-typos)).
 
 ![ctrl+x tab then c turns youu into you; ctrl+x tab then a turns whaat into what, and the band goes away](media/band.gif)
 
-In the band you can also press Tab to walk to `ignore` and Enter to accept that
-word from now on (saved between sessions), `r` to rephrase the draft with Haiku,
-`x` to hide the band until a check finds something new, and Esc to go back to the
-prompt. With [fullscreen rendering](https://code.claude.com/docs/en/fullscreen)
+In the band you can also press a row's digit to ignore that word from now on,
+in all your projects (the first row shows `1: ignore`). Press `r` to rephrase
+the draft with Haiku, `x` to hide the band until a check finds something new,
+and Esc to go back to the prompt. With [fullscreen rendering](https://code.claude.com/docs/en/fullscreen)
 on, you can click any fix instead.
 
 **Rephrase the whole draft.** While the band lists mistakes, press the band
@@ -93,6 +94,42 @@ ctrl+x tab keeps working too.
 Pick a key that nothing else on your computer uses. If you type in more than one
 language on macOS, check System Settings > Keyboard > Keyboard Shortcuts > Input
 Sources first: macOS can use Ctrl+Space to switch the keyboard language.
+
+## Words that are not typos
+
+A spell checker flags some words that are fine, such as names, `ok` or
+`frontmatter`. typofix keeps three lists of such words. It never lists a word
+that is in one of them, whichever spell checker flagged it (macOS, hunspell or
+enchant-2).
+
+| List    | File                                     | For                    | How a word gets in                              |
+| :------ | :--------------------------------------- | :--------------------- | :---------------------------------------------- |
+| Shipped | `words.txt` in the typofix folder        | everyone using typofix | a pull request to typofix                       |
+| Yours   | `~/.claude/typofix-words.txt`            | you, in every project  | a row's digit in the band, or `/typo-words add` |
+| Project | `.claude/typofix-words.txt` in a project | everyone in a project  | `/typo-words share`, then commit the file       |
+
+`~/.claude` is your `CLAUDE_CONFIG_DIR` when you set one. The project list is in
+the project's root folder, where the session started.
+
+Each file is plain text: one word a line, and text after `#` is a comment. Case
+does not matter (`Tovan` also covers `tovan`), and neither do straight or curly
+apostrophes (`it's`, `it’s`). You can edit the files by hand. typofix reads your
+list and the project list at every check, so an edit or a `git pull` counts at
+the next check.
+
+| Command                      | What it does                                        |
+| :--------------------------- | :-------------------------------------------------- |
+| `/typo-words`                | Shows the three lists, each with its file and words |
+| `/typo-words add <word…>`    | Adds words to your list                             |
+| `/typo-words share <word…>`  | Adds words to the project list, and makes the file  |
+| `/typo-words remove <word…>` | Takes words out of your list and the project list   |
+
+A shipped word stays ignored, and `remove` says so. A spell checker's own word
+list still works too, but only for that checker: hunspell's `~/.hunspell_en_US`,
+for example, does nothing for macOS. typofix's lists work for every checker.
+
+Earlier versions kept ignored words in typofix's own store. The first session
+with this version moves them to your list.
 
 ## A second checker: hunspell
 
@@ -184,7 +221,8 @@ terminal. Tested with the VS Code extension 2.1.306.
   `/rephrase` catches those.
 - The check skips code in backticks, paths, URLs, `@mentions`, and words that
   look like code (`snake_case`, `getUser`, `JSON`, `v2`).
-- `/rephrase` output is a transcript line, so Claude reads it too.
+- The output of `/rephrase` and `/typo-words` is a transcript line, so Claude
+  reads it too.
 
 ## Privacy
 
@@ -213,4 +251,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.308 on macOS.
+Tested with Claude Code 2.1.309 on macOS.

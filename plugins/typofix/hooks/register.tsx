@@ -9,6 +9,7 @@ import type {
 
 import type { Rephrase } from '../types'
 import {
+  addToWordList,
   applyChoice,
   buildRewriteRequest,
   decorationsFor,
@@ -17,6 +18,8 @@ import {
   focusShortcut,
   hunspellDictionary,
   isDictionaryLanguage,
+  isWord,
+  listedWords,
   listSignature,
   maskCode,
   mergeSpans,
@@ -24,11 +27,18 @@ import {
   parseIspell,
   parseMacResult,
   parseRewriteReply,
+  parseWordList,
+  PROJECT_WORDS_HEADER,
+  removeFromWordList,
   shiftSpans,
   toIspellInput,
   toIssue,
   tokenAt,
   typeaheadRows,
+  USER_WORDS_HEADER,
+  withoutIgnored,
+  wordKey,
+  writtenWord,
   type Checked,
   type Span,
   type Splice,
@@ -41,6 +51,7 @@ interface RephraseLimits {
 }
 type RephraseOutcome =
   { readonly rewrites: readonly string[] } | { readonly reason: string }
+type WordLevel = 'user' | 'project'
 
 interface Backend {
   readonly name: string
@@ -74,6 +85,7 @@ interface Live {
   hasEdits: boolean
   isReading: boolean
   pollTimer: Timer | undefined
+  shippedKeys: ReadonlySet<string> | undefined
 }
 
 const CHECK_DELAY_MS = 400
@@ -96,7 +108,18 @@ const REPHRASE_MAX_TIMEOUT_MS = 120000
 // per draft character (Japanese); twice that leaves room for a slow reply.
 const REPHRASE_MS_PER_CHAR = 2 * 2.9 * 1.9
 const MAX_LISTED = 8
+// Where ignored words were kept before the word lists; read until moved.
 const IGNORED_KEY = 'ignored'
+const WORDS_FILE = 'typofix-words.txt'
+const ARGUMENT_GAP = /\s+/u
+const SHIPPED_WORDS_FILE = 'words.txt'
+const MISSING_FILE = /\bENOENT\b/
+const WORDS_USAGE = [
+  'usage: /typo-words                  list the words typofix never lists as typos',
+  '       /typo-words add <word…>      for you, in all your projects',
+  '       /typo-words share <word…>    for everyone in this project',
+  '       /typo-words remove <word…>   from both lists',
+].join('\n')
 const REWRITE_LABELS = ['fixed', 'natural', 'short']
 const IDLE: Rephrase = { status: 'idle' }
 const NO_BACKEND =
@@ -194,6 +217,7 @@ const live: Live = {
   hasEdits: false,
   isReading: false,
   pollTimer: undefined,
+  shippedKeys: undefined,
 }
 
 function isPanel(): boolean {
@@ -332,13 +356,7 @@ async function runSpellCheck(
     live.checkedText = text
     return
   }
-  const ignored = await readIgnored($)
-  const fresh = found
-    .filter(
-      span =>
-        !(span.kind === 'spelling' && ignored.has(span.original.toLowerCase())),
-    )
-    .sort((a, b) => a.start - b.start)
+  const fresh = found.sort((a, b) => a.start - b.start)
 
   const again = await $.prompt.read()
   if (again.text !== text) {
@@ -449,7 +467,20 @@ async function checkedSpans(
   return undefined
 }
 
+// Every engine's result leaves through here, so no backend can skip the word
+// lists; they filter the merged spans, so an ignored macOS word never lets an
+// overlapping hunspell word in.
 async function checkText(
+  $: EngineInterface,
+  text: string,
+): Promise<Span[] | undefined> {
+  const ignored = readWordKeys($)
+  const spans = await runBackends($, text)
+  const keys = await ignored
+  return spans === undefined ? undefined : withoutIgnored(spans, keys)
+}
+
+async function runBackends(
   $: EngineInterface,
   text: string,
 ): Promise<Span[] | undefined> {
@@ -600,12 +631,145 @@ async function runBackend(
   return checked !== undefined && checked.spans.length > 0 ? checked : undefined
 }
 
-async function readIgnored($: EngineInterface): Promise<Set<string>> {
-  const stored = await $.store.get(IGNORED_KEY)
-  const words = Array.isArray(stored)
-    ? stored.filter((word: unknown): word is string => typeof word === 'string')
-    : []
-  return new Set(words)
+async function configDir($: EngineInterface): Promise<string> {
+  return (
+    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
+    `${(await $.env.get('HOME')) ?? ''}/.claude`
+  )
+}
+
+async function wordsPath(
+  $: EngineInterface,
+  level: WordLevel,
+): Promise<string> {
+  return level === 'user'
+    ? `${await configDir($)}/${WORDS_FILE}`
+    : `${await $.session.root()}/.claude/${WORDS_FILE}`
+}
+
+function shippedPath($: EngineInterface): string {
+  return `${$.plugin.root}/${SHIPPED_WORDS_FILE}`
+}
+
+// Never rejects: a list that cannot be read counts as empty.
+async function readWordKeys($: EngineInterface): Promise<ReadonlySet<string>> {
+  const [shipped, user, project, legacy] = await Promise.all([
+    readShippedKeys($),
+    readWordList($, 'user'),
+    readWordList($, 'project'),
+    readLegacyWords($),
+  ])
+  return new Set([...shipped, ...user, ...project, ...legacy.map(wordKey)])
+}
+
+// The shipped list changes only with a new version, which reloads the module.
+async function readShippedKeys(
+  $: EngineInterface,
+): Promise<ReadonlySet<string>> {
+  if (live.shippedKeys !== undefined) {
+    return live.shippedKeys
+  }
+  const text = await readWordFile($, shippedPath($))
+  if (text === undefined) {
+    return new Set()
+  }
+  live.shippedKeys = parseWordList(text)
+  return live.shippedKeys
+}
+
+async function readWordList(
+  $: EngineInterface,
+  level: WordLevel,
+): Promise<ReadonlySet<string>> {
+  let path: string
+  try {
+    path = await wordsPath($, level)
+  } catch (error) {
+    $.ui.log(`typofix: no path for the ${level} word list: ${String(error)}`, {
+      to: 'debug',
+    })
+    return new Set()
+  }
+  return parseWordList((await readWordFile($, path)) ?? '')
+}
+
+async function readWordFile(
+  $: EngineInterface,
+  path: string,
+): Promise<string | undefined> {
+  try {
+    return await $.fs.read(path)
+  } catch (error) {
+    if (!MISSING_FILE.test(String(error))) {
+      $.ui.log(`typofix: could not read ${path}: ${String(error)}`, {
+        to: 'debug',
+      })
+    }
+    return undefined
+  }
+}
+
+async function readLegacyWords($: EngineInterface): Promise<string[]> {
+  try {
+    const stored = await $.store.get(IGNORED_KEY)
+    return Array.isArray(stored)
+      ? stored.filter(
+          (word: unknown): word is string => typeof word === 'string',
+        )
+      : []
+  } catch (error) {
+    $.ui.log(`typofix: could not read the store: ${String(error)}`, {
+      to: 'debug',
+    })
+    return []
+  }
+}
+
+// A missing file starts empty; any other failed read stops the edit, so a
+// refused read can never lead to a write that drops the words already there.
+async function readForEdit($: EngineInterface, path: string): Promise<string> {
+  return (await $.fs.exists(path)) ? $.fs.read(path) : ''
+}
+
+async function addWords(
+  $: EngineInterface,
+  level: WordLevel,
+  words: readonly string[],
+): Promise<{ path: string; added: string[] }> {
+  const path = await wordsPath($, level)
+  const header = level === 'user' ? USER_WORDS_HEADER : PROJECT_WORDS_HEADER
+  const edited = addToWordList(await readForEdit($, path), words, header)
+  if (edited.added.length > 0) {
+    await $.fs.write(path, edited.text)
+  }
+  return { path, added: edited.added }
+}
+
+async function removeWords(
+  $: EngineInterface,
+  level: WordLevel,
+  keys: ReadonlySet<string>,
+): Promise<{ path: string; removed: string[] }> {
+  const path = await wordsPath($, level)
+  const text = await readForEdit($, path)
+  const edited = removeFromWordList(text, keys)
+  if (edited.removed.length > 0) {
+    await $.fs.write(path, edited.text)
+  }
+  return { path, removed: edited.removed }
+}
+
+async function moveLegacyWords($: EngineInterface): Promise<void> {
+  const words = await readLegacyWords($)
+  if (words.length === 0) {
+    return
+  }
+  const { path, added } = await addWords($, 'user', words)
+  await $.store.delete(IGNORED_KEY)
+  $.ui.log(
+    `typofix: moved ${String(added.length)} ignored words from the store to ${path}`,
+    { to: 'debug' },
+  )
 }
 
 async function runRephrase(
@@ -795,29 +959,19 @@ async function pickRewrite($: EngineInterface, rewrite: string): Promise<void> {
 }
 
 async function readShortcut($: EngineInterface): Promise<void> {
-  const configDir =
-    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
-    `${(await $.env.get('HOME')) ?? ''}/.claude`
+  const dir = await configDir($)
   try {
-    live.shortcut = focusShortcut(
-      await $.fs.read(`${configDir}/keybindings.json`),
-    )
+    live.shortcut = focusShortcut(await $.fs.read(`${dir}/keybindings.json`))
   } catch {
     // A failed read keeps the key shown so far, which starts as the default.
   }
 }
 
 async function ignoreWord($: EngineInterface, word: string): Promise<void> {
-  const lower = word.toLowerCase()
-  const ignored = await readIgnored($)
-  ignored.add(lower)
-  await $.store.set(IGNORED_KEY, [...ignored])
+  await addWords($, 'user', [word])
   const { text } = await $.prompt.read()
   await syncDraft($, text)
-  const rest = live.spans.filter(
-    span =>
-      !(span.kind === 'spelling' && span.original.toLowerCase() === lower),
-  )
+  const rest = withoutIgnored(live.spans, new Set([wordKey(word)]))
   if (rest.length === live.spans.length) {
     return
   }
@@ -896,6 +1050,125 @@ async function hideIssues($: EngineInterface): Promise<void> {
   await update($, isHidden, () => true)
 }
 
+async function runWordsCommand(
+  $: EngineInterface,
+  args: string,
+): Promise<string> {
+  const [action = '', ...words] = args.trim().split(ARGUMENT_GAP)
+  const isEdit = action === 'add' || action === 'share' || action === 'remove'
+  if (action !== '' && (!isEdit || words.length === 0)) {
+    return WORDS_USAGE
+  }
+  const notWords = words.filter(word => !isWord(writtenWord(word)))
+  if (notWords.length > 0) {
+    return `a word needs a letter: ${notWords.join(', ')}`
+  }
+  try {
+    if (action === '') {
+      return await listWords($)
+    }
+    return action === 'remove'
+      ? await removeCommand($, words)
+      : await addCommand($, action === 'add' ? 'user' : 'project', words)
+  } catch (error) {
+    return `that did not work: ${reasonOf(error, $.plugin.name)}`
+  }
+}
+
+async function listWords($: EngineInterface): Promise<string> {
+  const shipped = shippedPath($)
+  const user = await wordsPath($, 'user')
+  const project = await wordsPath($, 'project')
+  const legacy = await readLegacyWords($)
+  return [
+    'typofix never lists these words as typos, in every spell checker:',
+    describeList(
+      'ships with typofix',
+      shipped,
+      listedWords((await readWordFile($, shipped)) ?? ''),
+    ),
+    describeList(
+      'yours, in all your projects',
+      user,
+      listedWords((await readWordFile($, user)) ?? ''),
+    ),
+    describeList(
+      'this project, for everyone who commits the file',
+      project,
+      listedWords((await readWordFile($, project)) ?? ''),
+    ),
+    ...(legacy.length > 0
+      ? [`still in the store, moved at the next start: ${legacy.join(', ')}`]
+      : []),
+  ].join('\n')
+}
+
+function describeList(
+  name: string,
+  path: string,
+  words: readonly string[],
+): string {
+  const count = `${String(words.length)} ${words.length === 1 ? 'word' : 'words'}`
+  const list = words.length > 0 ? `\n  ${words.join(', ')}` : ''
+  return `${name}: ${count} in ${path}${list}`
+}
+
+async function addCommand(
+  $: EngineInterface,
+  level: WordLevel,
+  words: readonly string[],
+): Promise<string> {
+  const shipped = await readShippedKeys($)
+  const asked = listedWords(words.join('\n'))
+  const isShipped = (word: string): boolean => shipped.has(wordKey(word))
+  const { path, added } = await addWords(
+    $,
+    level,
+    asked.filter(word => !isShipped(word)),
+  )
+  const isAdded = (word: string): boolean =>
+    added.some(other => wordKey(other) === wordKey(word))
+  const already = asked.filter(word => !isShipped(word) && !isAdded(word))
+  return [
+    ...(added.length > 0 ? [`added ${added.join(', ')} to ${path}`] : []),
+    ...(level === 'project' && added.length > 0
+      ? ['Commit the file to share it.']
+      : []),
+    ...(already.length > 0
+      ? [`already in ${path}: ${already.join(', ')}`]
+      : []),
+    ...asked.filter(isShipped).map(word => `${word} ships with typofix`),
+  ].join('\n')
+}
+
+async function removeCommand(
+  $: EngineInterface,
+  words: readonly string[],
+): Promise<string> {
+  // A word still in the store would stay ignored after its line is gone.
+  await moveLegacyWords($)
+  const asked = listedWords(words.join('\n'))
+  const keys = new Set(asked.map(wordKey))
+  const shipped = await readShippedKeys($)
+  const edits = [
+    await removeWords($, 'user', keys),
+    await removeWords($, 'project', keys),
+  ]
+  const removed = new Set(edits.flatMap(edit => edit.removed).map(wordKey))
+  const missing = asked.filter(
+    word => !removed.has(wordKey(word)) && !shipped.has(wordKey(word)),
+  )
+  return [
+    ...edits
+      .filter(edit => edit.removed.length > 0)
+      .map(edit => `removed ${edit.removed.join(', ')} from ${edit.path}`),
+    ...asked
+      .filter(word => shipped.has(wordKey(word)))
+      .map(word => `${word} ships with typofix, so it stays ignored`),
+    ...(missing.length > 0 ? [`not in your lists: ${missing.join(', ')}`] : []),
+  ].join('\n')
+}
+
 export const register: Register = (on, options) => {
   const language = options['language']
   live.language = typeof language === 'string' ? language.trim() : ''
@@ -903,12 +1176,25 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     forgetDraft()
+    live.shippedKeys = undefined
     await resetState($)
     await readShortcut($)
+    // The store key goes only once the words are in the file, so a failed
+    // move loses nothing: the check reads the store too until then.
+    await moveLegacyWords($).catch((error: unknown) => {
+      $.ui.log(`typofix: could not move the ignored words: ${String(error)}`, {
+        to: 'debug',
+      })
+    })
     await $.command.register({
       name: 'rephrase',
       description: 'Rewrite a text 3 ways with Haiku: fixed, natural and short',
       argumentHint: '<text>',
+    })
+    await $.command.register({
+      name: 'typo-words',
+      description: 'List, add or remove the words typofix never lists as typos',
+      argumentHint: '[add|share|remove <word…>]',
     })
     if (e.isInteractive) {
       scheduleCheck($, undefined)
@@ -1025,6 +1311,10 @@ export const register: Register = (on, options) => {
         .join('\n'),
     }
   })
+
+  on('command.run', { command: 'typo-words' }, async ($, e) => ({
+    text: await runWordsCommand($, e.args),
+  }))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) {
@@ -1166,6 +1456,7 @@ export const register: Register = (on, options) => {
             {issue.kind === 'spelling' ? (
               <Button
                 key={`ignore-${String(row + 1)}`}
+                hotkey={String(row + 1)}
                 plain
                 dimColor
                 onPress={() => {
