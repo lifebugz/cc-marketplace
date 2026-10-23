@@ -870,9 +870,19 @@ async function readPanelAttached($: EngineInterface): Promise<void> {
   live.isPanelAttached = (await $.session.surfaces()).includes('vscode')
 }
 
-function startPanelPoll($: EngineInterface): void {
+function stopPanelPoll(): void {
   live.pollTimer?.cancel()
-  live.pollTimer = $.clock.every(PANEL_POLL_MS, () => {
+  live.pollTimer = undefined
+}
+
+// The timer runs only while a panel shows this session: switching to another
+// conversation in the panel detaches it.
+function syncPanelPoll($: EngineInterface): void {
+  if (!isPanel()) {
+    stopPanelPoll()
+    return
+  }
+  live.pollTimer ??= $.clock.every(PANEL_POLL_MS, () => {
     pollPanel($).catch((error: unknown) => {
       $.ui.log(`typofix: reading the panel's draft failed: ${String(error)}`, {
         to: 'debug',
@@ -906,8 +916,9 @@ export const register: Register = (on, options) => {
       (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === PANEL_ENTRYPOINT
     ) {
       live.isPanelHost = true
+      stopPanelPoll()
       await readPanelAttached($)
-      startPanelPoll($)
+      syncPanelPoll($)
     }
     return next(e)
   })
@@ -916,6 +927,7 @@ export const register: Register = (on, options) => {
     const attached = await next(e)
     if (live.isPanelHost) {
       await readPanelAttached($)
+      syncPanelPoll($)
     }
     return attached
   })
@@ -924,12 +936,14 @@ export const register: Register = (on, options) => {
     const detached = await next(e)
     if (live.isPanelHost) {
       await readPanelAttached($)
+      syncPanelPoll($)
     }
     return detached
   })
 
   on('prompt.edit', async ($, e, next) => {
     live.hasEdits = true
+    stopPanelPoll()
     await syncDraft($, e.text)
     const edited = await next(e)
     noteEdit(edited.text)

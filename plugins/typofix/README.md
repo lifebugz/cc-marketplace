@@ -149,8 +149,9 @@ typofix also works in the Claude Code panel of the VS Code extension, but the
 panel tells mods nothing about single keys and draws no underlines in its
 input. So in the panel:
 
-- typofix reads the draft about three times a second and lists its typos in
-  the band above the input.
+- typofix reads the draft of the conversation the panel shows, about three
+  times a second, and lists its typos in the band above the input. A
+  conversation you switch away from is not read.
 - You click a fix, `ignore`, `Hide`, `Rephrase` or a rewrite. Buttons have no
   keys there.
 - A fix or a rewrite replaces the whole draft and moves the cursor to the end;

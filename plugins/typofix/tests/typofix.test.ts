@@ -1938,6 +1938,32 @@ describe('the VS Code panel', () => {
     expect(world.prompts[0]).toContain(`${STOR_DRAFT} now`)
   })
 
+  test('a panel that attaches again after a detach is read and checked again', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds({ word: 'teh', choices: ['the'] }),
+      '',
+      undefined,
+      PANEL_ENV,
+    )
+    await openPanel($, world)
+    await $.session.detach({
+      surface: 'vscode',
+      clientId: 'panel-1',
+      reason: 'detach',
+    })
+    const reads = world.reads
+    await world.clock.advance(3000)
+    expect(world.reads).toBe(reads)
+
+    await $.session.attach({ surface: 'vscode', clientId: 'panel-2' })
+    world.draft = 'fix teh bug now'
+    await world.clock.advance(1000)
+    expect(world.reads).toBeGreaterThan(reads)
+    const band = await $.ui.mount(PANEL_BAND)
+    expect(await band.find({ key: 'fix-1-1' })).toMatchObject({ text: 'the' })
+  })
+
   test('with no panel attached, a non-interactive session never reads the draft', async ($, on) => {
     const world = setup(on, macFinds(), 'fix the bug now', undefined, PANEL_ENV)
     await $.session.start({ cwd: '/work', surface: null, isInteractive: false })
