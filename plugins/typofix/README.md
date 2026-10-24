@@ -45,7 +45,7 @@ aside and the fixes appear directly above the prompt. The word they fix is bold:
 **2. With the cursor anywhere: the band shortcut, then a letter.** The band
 lists up to 8 mistakes, and each of the first 22 fixes gets its own letter:
 
-![The band lists whaat with a: what and b: wheat, and youu with c: you, d: your and e: yous](media/band.png)
+![The band lists whaat with a: what, b: wheat and 1: ignore, and youu with c: you, d: your, e: yous and 2: ignore](media/band.png)
 
 Press **ctrl+x tab** (or your own shortcut, below), then the letter. The word is
 fixed and you are back in the prompt, ready to type. The letters never use `i`,
@@ -254,4 +254,4 @@ on `globalThis`.
 counts and positions arrive as strings (`"25"`), so the types say `string` and
 the script converts them with `Number()`.
 
-Tested with Claude Code 2.1.309 on macOS.
+Tested with Claude Code 2.1.310 on macOS.
