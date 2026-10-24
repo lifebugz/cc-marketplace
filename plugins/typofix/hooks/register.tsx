@@ -9,6 +9,7 @@ import type {
 
 import type { Rephrase } from '../types'
 import {
+  addToWordList,
   applyChoice,
   buildRewriteRequest,
   decorationsFor,
@@ -17,7 +18,7 @@ import {
   focusShortcut,
   hunspellDictionary,
   isDictionaryLanguage,
-  isDraft,
+  listedWords,
   listSignature,
   maskCode,
   mergeSpans,
@@ -25,11 +26,18 @@ import {
   parseIspell,
   parseMacResult,
   parseRewriteReply,
+  parseWordList,
+  PROJECT_WORDS_HEADER,
+  removeFromWordList,
   shiftSpans,
   toIspellInput,
   toIssue,
   tokenAt,
   typeaheadRows,
+  USER_WORDS_HEADER,
+  withoutIgnored,
+  wordKey,
+  writtenWord,
   type Checked,
   type Span,
   type Splice,
@@ -42,6 +50,7 @@ interface RephraseLimits {
 }
 type RephraseOutcome =
   { readonly rewrites: readonly string[] } | { readonly reason: string }
+type WordLevel = 'user' | 'project'
 
 interface Backend {
   readonly name: string
@@ -59,8 +68,6 @@ interface Live {
   edited: string
   checkedText: string | undefined
   spans: readonly Span[]
-  hasDraft: boolean
-  isChecked: boolean
   isOffering: boolean
   hiddenFor: string | undefined
   checkTimer: Timer | undefined
@@ -72,9 +79,21 @@ interface Live {
   rephraseFrom: RephraseFrom
   rephraseSource: string
   rephraseStop: AbortController | undefined
+  isPanelHost: boolean
+  isPanelAttached: boolean
+  hasEdits: boolean
+  isReading: boolean
+  pollTimer: Timer | undefined
+  shippedKeys: ReadonlySet<string> | undefined
+  wordEdits: Promise<unknown>
 }
 
 const CHECK_DELAY_MS = 400
+// The VS Code panel raises no prompt.edit, so its draft is read on a timer.
+const PANEL_ENTRYPOINT = 'claude-vscode'
+const PANEL_POLL_MS = 300
+// The extension answers an empty box after 4.5 s when the panel is silent.
+const PANEL_SILENT_MS = 4000
 const SPELL_TIMEOUT_MS = 5000
 const MAX_HUNSPELL_MISSES = 3
 const ENGINE_OP = /^\$\.[\w.]+(?:\([^)]*\))?:? /
@@ -89,7 +108,18 @@ const REPHRASE_MAX_TIMEOUT_MS = 120000
 // per draft character (Japanese); twice that leaves room for a slow reply.
 const REPHRASE_MS_PER_CHAR = 2 * 2.9 * 1.9
 const MAX_LISTED = 8
+// Where ignored words were kept before the word lists; read until moved.
 const IGNORED_KEY = 'ignored'
+const WORDS_FILE = 'typofix-words.txt'
+const ARGUMENT_GAP = /\s+/u
+const SHIPPED_WORDS_FILE = 'words.txt'
+const MISSING_FILE = /\bENOENT\b/
+const WORDS_USAGE = [
+  'usage: /typo-words                  list the words typofix never lists as typos',
+  '       /typo-words add <word…>      for you, in all your projects',
+  '       /typo-words share <word…>    for everyone in this project',
+  '       /typo-words remove <word…>   from both lists',
+].join('\n')
 const REWRITE_LABELS = ['fixed', 'natural', 'short']
 const IDLE: Rephrase = { status: 'idle' }
 const NO_BACKEND =
@@ -100,8 +130,6 @@ const SPELL_SERVER_TIMEOUT = /NSSpellServer dataFromChecking\w* timed out/
 
 const issues = atom({ plugin: 'typofix', key: 'issues' } as const, [])
 const isHidden = atom({ plugin: 'typofix', key: 'isHidden' } as const, false)
-const hasDraft = atom({ plugin: 'typofix', key: 'hasDraft' } as const, false)
-const isChecked = atom({ plugin: 'typofix', key: 'isChecked' } as const, false)
 const isOffering = atom(
   { plugin: 'typofix', key: 'isOffering' } as const,
   false,
@@ -173,8 +201,6 @@ const live: Live = {
   edited: '',
   checkedText: undefined,
   spans: [],
-  hasDraft: false,
-  isChecked: false,
   isOffering: false,
   hiddenFor: undefined,
   checkTimer: undefined,
@@ -186,6 +212,17 @@ const live: Live = {
   rephraseFrom: 'band',
   rephraseSource: '',
   rephraseStop: undefined,
+  isPanelHost: false,
+  isPanelAttached: false,
+  hasEdits: false,
+  isReading: false,
+  pollTimer: undefined,
+  shippedKeys: undefined,
+  wordEdits: Promise.resolve(),
+}
+
+function isPanel(): boolean {
+  return live.isPanelAttached && !live.hasEdits
 }
 
 function forgetDraft(): void {
@@ -194,7 +231,6 @@ function forgetDraft(): void {
   live.draftText = ''
   live.checkedText = undefined
   live.spans = []
-  live.hasDraft = false
   live.hiddenFor = undefined
 }
 
@@ -213,12 +249,9 @@ function isLateSubmit(text: string): boolean {
 
 async function resetState($: EngineInterface): Promise<void> {
   live.rephrase = 'idle'
-  live.isChecked = false
   live.isOffering = false
   await update($, issues, () => [])
   await update($, isHidden, () => false)
-  await update($, hasDraft, () => false)
-  await update($, isChecked, () => false)
   await update($, isOffering, () => false)
   await update($, rephrase, () => IDLE)
 }
@@ -227,20 +260,14 @@ function offeredAt(text: string, cursor: number): Span | undefined {
   return offeredSpan(live.spans, tokenAt(text, cursor))
 }
 
-async function setOffering($: EngineInterface, value: boolean): Promise<void> {
+async function setOffering($: EngineInterface, offer: boolean): Promise<void> {
+  // The panel shows no typeahead rows, so the band never steps aside there.
+  const value = offer && !isPanel()
   if (value === live.isOffering) {
     return
   }
   live.isOffering = value
   await update($, isOffering, () => live.isOffering)
-}
-
-async function setChecked($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.isChecked) {
-    return
-  }
-  live.isChecked = value
-  await update($, isChecked, () => live.isChecked)
 }
 
 async function writeIssues(
@@ -249,14 +276,6 @@ async function writeIssues(
 ): Promise<void> {
   live.spans = spans
   await update($, issues, () => live.spans.map(toIssue))
-}
-
-async function setDraft($: EngineInterface, value: boolean): Promise<void> {
-  if (value === live.hasDraft) {
-    return
-  }
-  live.hasDraft = value
-  await update($, hasDraft, () => live.hasDraft)
 }
 
 async function setRephrase($: EngineInterface, value: Rephrase): Promise<void> {
@@ -287,8 +306,6 @@ async function onDraftChange(
   if (live.spans.length !== before.length) {
     await writeIssues($, live.spans)
   }
-  await setDraft($, isDraft(text))
-  await setChecked($, false)
   await settleRephrase($)
 }
 
@@ -327,7 +344,6 @@ async function runSpellCheck(
     live.spans = shiftSpans(live.spans, diffSplice(live.draftText, text), text)
     live.draftText = text
   }
-  await setDraft($, isDraft(text))
   if (text.trim() === '' || text.startsWith('/')) {
     if (live.spans.length > 0) {
       await writeIssues($, [])
@@ -339,18 +355,9 @@ async function runSpellCheck(
   const found = await checkText($, text)
   if (found === undefined) {
     live.checkedText = text
-    if (live.backend === null) {
-      await setChecked($, true)
-    }
     return
   }
-  const ignored = await readIgnored($)
-  const fresh = found
-    .filter(
-      span =>
-        !(span.kind === 'spelling' && ignored.has(span.original.toLowerCase())),
-    )
-    .sort((a, b) => a.start - b.start)
+  const fresh = found.sort((a, b) => a.start - b.start)
 
   const again = await $.prompt.read()
   if (again.text !== text) {
@@ -359,7 +366,6 @@ async function runSpellCheck(
   const hadSpans = live.spans.length > 0
   await showIssues($, fresh)
   live.checkedText = text
-  await setChecked($, true)
   await setOffering($, offeredAt(text, again.cursor) !== undefined)
   await paintNow($, text, hadSpans)
 }
@@ -369,7 +375,8 @@ async function paintNow(
   text: string,
   hadSpans: boolean,
 ): Promise<void> {
-  if (live.spans.length === 0 && !hadSpans) {
+  // The panel drops decorations, and a fill would move its caret.
+  if ((live.spans.length === 0 && !hadSpans) || isPanel()) {
     return
   }
   const box = await $.prompt.read()
@@ -461,7 +468,21 @@ async function checkedSpans(
   return undefined
 }
 
+// Every engine's result leaves through here, so no backend can skip the word
+// lists; they filter the merged spans, so an ignored macOS word never lets an
+// overlapping hunspell word in. The lists are read once the engines answer,
+// so a word ignored while they run stays ignored.
 async function checkText(
+  $: EngineInterface,
+  text: string,
+): Promise<Span[] | undefined> {
+  const spans = await runBackends($, text)
+  return spans === undefined
+    ? undefined
+    : withoutIgnored(spans, await readWordKeys($))
+}
+
+async function runBackends(
   $: EngineInterface,
   text: string,
 ): Promise<Span[] | undefined> {
@@ -612,12 +633,168 @@ async function runBackend(
   return checked !== undefined && checked.spans.length > 0 ? checked : undefined
 }
 
-async function readIgnored($: EngineInterface): Promise<Set<string>> {
-  const stored = await $.store.get(IGNORED_KEY)
-  const words = Array.isArray(stored)
-    ? stored.filter((word: unknown): word is string => typeof word === 'string')
-    : []
-  return new Set(words)
+async function configDir($: EngineInterface): Promise<string> {
+  return (
+    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
+    `${(await $.env.get('HOME')) ?? ''}/.claude`
+  )
+}
+
+async function userWordsPath($: EngineInterface): Promise<string> {
+  return `${await configDir($)}/${WORDS_FILE}`
+}
+
+// Undefined when the project's .claude folder is the user's own, as in a
+// session started in the home folder: that file is the user's list.
+async function projectWordsPath(
+  $: EngineInterface,
+): Promise<string | undefined> {
+  const path = `${await $.session.root()}/.claude/${WORDS_FILE}`
+  return path === (await userWordsPath($)) ? undefined : path
+}
+
+async function wordsPath(
+  $: EngineInterface,
+  level: WordLevel,
+): Promise<string | undefined> {
+  return level === 'user' ? userWordsPath($) : projectWordsPath($)
+}
+
+function shippedPath($: EngineInterface): string {
+  return `${$.plugin.root}/${SHIPPED_WORDS_FILE}`
+}
+
+// Never rejects: a list that cannot be read counts as empty.
+async function readWordKeys($: EngineInterface): Promise<ReadonlySet<string>> {
+  const [shipped, user, project, legacy] = await Promise.all([
+    readShippedKeys($),
+    readWordList($, 'user'),
+    readWordList($, 'project'),
+    readLegacyWords($),
+  ])
+  return new Set([...shipped, ...user, ...project, ...legacy.map(wordKey)])
+}
+
+// The shipped list changes only with a new version, which reloads the module.
+async function readShippedKeys(
+  $: EngineInterface,
+): Promise<ReadonlySet<string>> {
+  if (live.shippedKeys !== undefined) {
+    return live.shippedKeys
+  }
+  const text = await readWordFile($, shippedPath($))
+  if (text === undefined) {
+    return new Set()
+  }
+  live.shippedKeys = parseWordList(text)
+  return live.shippedKeys
+}
+
+async function readWordList(
+  $: EngineInterface,
+  level: WordLevel,
+): Promise<ReadonlySet<string>> {
+  let path: string | undefined
+  try {
+    path = await wordsPath($, level)
+  } catch (error) {
+    $.ui.log(`typofix: no path for the ${level} word list: ${String(error)}`, {
+      to: 'debug',
+    })
+    return new Set()
+  }
+  return path === undefined
+    ? new Set()
+    : parseWordList((await readWordFile($, path)) ?? '')
+}
+
+async function readWordFile(
+  $: EngineInterface,
+  path: string,
+): Promise<string | undefined> {
+  try {
+    return await $.fs.read(path)
+  } catch (error) {
+    if (!MISSING_FILE.test(String(error))) {
+      $.ui.log(`typofix: could not read ${path}: ${String(error)}`, {
+        to: 'debug',
+      })
+    }
+    return undefined
+  }
+}
+
+async function readLegacyWords($: EngineInterface): Promise<string[]> {
+  try {
+    const stored = await $.store.get(IGNORED_KEY)
+    return Array.isArray(stored)
+      ? stored.filter(
+          (word: unknown): word is string => typeof word === 'string',
+        )
+      : []
+  } catch (error) {
+    $.ui.log(`typofix: could not read the store: ${String(error)}`, {
+      to: 'debug',
+    })
+    return []
+  }
+}
+
+// A missing file starts empty; any other failed read stops the edit, so a
+// refused read can never lead to a write that drops the words already there.
+async function readForEdit($: EngineInterface, path: string): Promise<string> {
+  return (await $.fs.exists(path)) ? $.fs.read(path) : ''
+}
+
+// An edit reads, changes and writes back the whole file, so two at once would
+// drop the words of one; they run one after another.
+async function oneEditAtATime<T>(edit: () => Promise<T>): Promise<T> {
+  const run = live.wordEdits.then(edit)
+  live.wordEdits = run.catch(() => undefined)
+  return run
+}
+
+async function addWords(
+  $: EngineInterface,
+  path: string,
+  header: readonly string[],
+  words: readonly string[],
+): Promise<string[]> {
+  return oneEditAtATime(async () => {
+    const edited = addToWordList(await readForEdit($, path), words, header)
+    if (edited.added.length > 0) {
+      await $.fs.write(path, edited.text)
+    }
+    return edited.added
+  })
+}
+
+async function removeWords(
+  $: EngineInterface,
+  path: string,
+  keys: ReadonlySet<string>,
+): Promise<string[]> {
+  return oneEditAtATime(async () => {
+    const edited = removeFromWordList(await readForEdit($, path), keys)
+    if (edited.removed.length > 0) {
+      await $.fs.write(path, edited.text)
+    }
+    return edited.removed
+  })
+}
+
+async function moveLegacyWords($: EngineInterface): Promise<void> {
+  const words = await readLegacyWords($)
+  if (words.length === 0) {
+    return
+  }
+  const path = await userWordsPath($)
+  const added = await addWords($, path, USER_WORDS_HEADER, words)
+  await $.store.delete(IGNORED_KEY)
+  $.ui.log(
+    `typofix: moved ${String(added.length)} ignored words from the store to ${path}`,
+    { to: 'debug' },
+  )
 }
 
 async function runRephrase(
@@ -713,6 +890,9 @@ async function rephraseDraft($: EngineInterface): Promise<void> {
   if (text.trim() === '') {
     return
   }
+  // In the panel the draft copy can trail the box; a later read of this same
+  // text must not count as an edit that cancels the rewrite.
+  await syncDraft($, text)
   await runRephrase($, text, 'band')
 }
 
@@ -774,7 +954,6 @@ async function pickChoice(
   live.draftText = applied.text
   live.checkedText = applied.text
   await writeIssues($, shifted)
-  await setDraft($, isDraft(applied.text))
   await setOffering($, false)
   scheduleCheck($, applied.text)
 }
@@ -800,41 +979,33 @@ async function pickRewrite($: EngineInterface, rewrite: string): Promise<void> {
   live.draftText = rewrite
   await setRephrase($, IDLE)
   await writeIssues($, [])
-  await setDraft($, isDraft(rewrite))
-  await setChecked($, false)
   await setOffering($, false)
   scheduleCheck($, rewrite)
 }
 
 async function readShortcut($: EngineInterface): Promise<void> {
-  const configDir =
-    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
-    `${(await $.env.get('HOME')) ?? ''}/.claude`
+  const dir = await configDir($)
   try {
-    live.shortcut = focusShortcut(
-      await $.fs.read(`${configDir}/keybindings.json`),
-    )
+    live.shortcut = focusShortcut(await $.fs.read(`${dir}/keybindings.json`))
   } catch {
     // A failed read keeps the key shown so far, which starts as the default.
   }
 }
 
 async function ignoreWord($: EngineInterface, word: string): Promise<void> {
-  const lower = word.toLowerCase()
-  const ignored = await readIgnored($)
-  ignored.add(lower)
-  await $.store.set(IGNORED_KEY, [...ignored])
+  await addWords($, await userWordsPath($), USER_WORDS_HEADER, [word])
   const { text } = await $.prompt.read()
   await syncDraft($, text)
-  const rest = live.spans.filter(
-    span =>
-      !(span.kind === 'spelling' && span.original.toLowerCase() === lower),
-  )
+  const rest = withoutIgnored(live.spans, new Set([wordKey(word)]))
   if (rest.length === live.spans.length) {
     return
   }
   const offered = offeredSpan(rest, tokenAt(text, text.length))
   live.spans = rest
+  if (isPanel()) {
+    await writeIssues($, live.spans)
+    return
+  }
   // A key typed since the read would be lost to the fill; its prompt.edit
   // paints the spans instead.
   const box = await $.prompt.read()
@@ -854,9 +1025,217 @@ async function ignoreWord($: EngineInterface, word: string): Promise<void> {
   await writeIssues($, live.spans)
 }
 
+async function pollPanel($: EngineInterface): Promise<void> {
+  if (!isPanel() || live.isReading) {
+    return
+  }
+  live.isReading = true
+  try {
+    const startedAt = await $.clock.now()
+    const { text } = await $.prompt.read()
+    const isSilent =
+      text === '' && (await $.clock.now()) - startedAt >= PANEL_SILENT_MS
+    if (!isSilent) {
+      await syncDraft($, text)
+    }
+  } finally {
+    live.isReading = false
+  }
+}
+
+// Asked, not counted from session.attach: a module loaded after the panel
+// attached (a reload or an enable) hears no attach.
+async function readPanelAttached($: EngineInterface): Promise<void> {
+  live.isPanelAttached = (await $.session.surfaces()).includes('vscode')
+}
+
+function stopPanelPoll(): void {
+  live.pollTimer?.cancel()
+  live.pollTimer = undefined
+}
+
+// The timer runs only while a panel shows this session: switching to another
+// conversation in the panel detaches it.
+function syncPanelPoll($: EngineInterface): void {
+  if (!isPanel()) {
+    stopPanelPoll()
+    return
+  }
+  live.pollTimer ??= $.clock.every(PANEL_POLL_MS, () => {
+    pollPanel($).catch((error: unknown) => {
+      $.ui.log(`typofix: reading the panel's draft failed: ${String(error)}`, {
+        to: 'debug',
+      })
+    })
+  })
+}
+
 async function hideIssues($: EngineInterface): Promise<void> {
   live.hiddenFor = listSignature(live.spans.map(toIssue))
   await update($, isHidden, () => true)
+}
+
+async function runWordsCommand(
+  $: EngineInterface,
+  args: string,
+): Promise<string> {
+  const [action = '', ...words] = args.trim().split(ARGUMENT_GAP)
+  const isEdit = action === 'add' || action === 'share' || action === 'remove'
+  if (action !== '' && (!isEdit || words.length === 0)) {
+    return WORDS_USAGE
+  }
+  const notWords = words.filter(word => !isOneWord(word))
+  if (notWords.length > 0) {
+    return `not a word: ${notWords.join(', ')} (a word needs a letter, and # starts a comment)`
+  }
+  try {
+    if (action === '') {
+      return await listWords($)
+    }
+    return action === 'remove'
+      ? await removeCommand($, words)
+      : await addCommand($, action === 'add' ? 'user' : 'project', words)
+  } catch (error) {
+    return `that did not work: ${reasonOf(error, $.plugin.name)}`
+  }
+}
+
+// A list file keeps only what its parser reads back, so an argument must read
+// back as itself: `#tag` would be a comment and `a#b` the word `a`.
+function isOneWord(word: string): boolean {
+  const parsed = listedWords(word)
+  return parsed.length === 1 && parsed[0] === writtenWord(word)
+}
+
+async function listWords($: EngineInterface): Promise<string> {
+  const project = await projectWordsPath($)
+  const legacy = await readLegacyWords($)
+  return [
+    // Claude Code shows a mod's reply after `typofix: `.
+    'These words are never listed as typos, whichever spell checker flags them:',
+    await describeFile($, 'ships with typofix', shippedPath($)),
+    await describeFile(
+      $,
+      'yours, in all your projects',
+      await userWordsPath($),
+    ),
+    project === undefined
+      ? `this project: none, since its .claude folder is yours`
+      : await describeFile(
+          $,
+          'this project, for everyone who commits the file',
+          project,
+        ),
+    ...(legacy.length > 0
+      ? [`still in the store, moved at the next start: ${legacy.join(', ')}`]
+      : []),
+  ].join('\n')
+}
+
+async function describeFile(
+  $: EngineInterface,
+  name: string,
+  path: string,
+): Promise<string> {
+  try {
+    return describeList(name, path, listedWords(await readForEdit($, path)))
+  } catch (error) {
+    return `${name}: could not read ${path}: ${reasonOf(error, $.plugin.name)}`
+  }
+}
+
+function describeList(
+  name: string,
+  path: string,
+  words: readonly string[],
+): string {
+  const count = `${String(words.length)} ${words.length === 1 ? 'word' : 'words'}`
+  const list = words.length > 0 ? `\n  ${words.join(', ')}` : ''
+  return `${name}: ${count} in ${path}${list}`
+}
+
+async function addCommand(
+  $: EngineInterface,
+  level: WordLevel,
+  words: readonly string[],
+): Promise<string> {
+  const path = await wordsPath($, level)
+  if (path === undefined) {
+    return "no project list here: this project's .claude folder is your own. Use /typo-words add."
+  }
+  const header = level === 'user' ? USER_WORDS_HEADER : PROJECT_WORDS_HEADER
+  const shipped = await readShippedKeys($)
+  const asked = listedWords(words.join('\n'))
+  const isShipped = (word: string): boolean => shipped.has(wordKey(word))
+  const added = await addWords(
+    $,
+    path,
+    header,
+    asked.filter(word => !isShipped(word)),
+  )
+  const isAdded = (word: string): boolean =>
+    added.some(other => wordKey(other) === wordKey(word))
+  const already = asked.filter(word => !isShipped(word) && !isAdded(word))
+  return [
+    ...(added.length > 0 ? [`added ${added.join(', ')} to ${path}`] : []),
+    ...(level === 'project' && added.length > 0
+      ? ['Commit the file to share it.']
+      : []),
+    ...(already.length > 0
+      ? [`already in ${path}: ${already.join(', ')}`]
+      : []),
+    ...asked.filter(isShipped).map(word => `${word} ships with typofix`),
+  ].join('\n')
+}
+
+async function removeCommand(
+  $: EngineInterface,
+  words: readonly string[],
+): Promise<string> {
+  // A word still in the store would stay ignored after its line is gone.
+  await moveLegacyWords($)
+  const asked = listedWords(words.join('\n'))
+  const keys = new Set(asked.map(wordKey))
+  const shipped = await readShippedKeys($)
+  const project = await projectWordsPath($)
+  const edits = [
+    await removeFrom($, await userWordsPath($), keys),
+    ...(project === undefined ? [] : [await removeFrom($, project, keys)]),
+  ]
+  const removed = new Set(edits.flatMap(edit => edit.removed).map(wordKey))
+  const isListedNowhere = edits.every(edit => edit.error === undefined)
+  const missing = asked.filter(
+    word => !removed.has(wordKey(word)) && !shipped.has(wordKey(word)),
+  )
+  return [
+    ...edits.flatMap(edit => {
+      if (edit.error !== undefined) {
+        return [`could not change ${edit.path}: ${edit.error}`]
+      }
+      return edit.removed.length > 0
+        ? [`removed ${edit.removed.join(', ')} from ${edit.path}`]
+        : []
+    }),
+    ...asked
+      .filter(word => shipped.has(wordKey(word)))
+      .map(word => `${word} ships with typofix, so it stays ignored`),
+    ...(isListedNowhere && missing.length > 0
+      ? [`not in your lists: ${missing.join(', ')}`]
+      : []),
+  ].join('\n')
+}
+
+// One file's refusal must not hide what changed in the other.
+async function removeFrom(
+  $: EngineInterface,
+  path: string,
+  keys: ReadonlySet<string>,
+): Promise<{ path: string; removed: string[]; error?: string }> {
+  try {
+    return { path, removed: await removeWords($, path, keys) }
+  } catch (error) {
+    return { path, removed: [], error: reasonOf(error, $.plugin.name) }
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -866,20 +1245,60 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     forgetDraft()
+    live.shippedKeys = undefined
     await resetState($)
     await readShortcut($)
+    // The store key goes only once the words are in the file, so a failed
+    // move loses nothing: the check reads the store too until then.
+    await moveLegacyWords($).catch((error: unknown) => {
+      $.ui.log(`typofix: could not move the ignored words: ${String(error)}`, {
+        to: 'debug',
+      })
+    })
     await $.command.register({
       name: 'rephrase',
       description: 'Rewrite a text 3 ways with Haiku: fixed, natural and short',
       argumentHint: '<text>',
     })
+    await $.command.register({
+      name: 'typo-words',
+      description: 'List, add or remove the words typofix never lists as typos',
+      argumentHint: '[add|share|remove <word…>]',
+    })
     if (e.isInteractive) {
       scheduleCheck($, undefined)
+    } else if (
+      (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === PANEL_ENTRYPOINT
+    ) {
+      live.isPanelHost = true
+      stopPanelPoll()
+      await readPanelAttached($)
+      syncPanelPoll($)
     }
     return next(e)
   })
 
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    if (live.isPanelHost) {
+      await readPanelAttached($)
+      syncPanelPoll($)
+    }
+    return attached
+  })
+
+  on('session.detach', async ($, e, next) => {
+    const detached = await next(e)
+    if (live.isPanelHost) {
+      await readPanelAttached($)
+      syncPanelPoll($)
+    }
+    return detached
+  })
+
   on('prompt.edit', async ($, e, next) => {
+    live.hasEdits = true
+    stopPanelPoll()
     await syncDraft($, e.text)
     const edited = await next(e)
     noteEdit(edited.text)
@@ -921,7 +1340,13 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind !== 'composer' || isLateSubmit(e.text)) {
+    // The panel's draft copy can trail its box by one read, so a panel send
+    // is never judged late; the next read checks whatever the box holds.
+    const isPanelSend = isPanel() && e.origin.kind === 'sdk'
+    if (
+      !isPanelSend &&
+      (e.origin.kind !== 'composer' || isLateSubmit(e.text))
+    ) {
       return next(e)
     }
     const isDraftSent = live.draftText === e.text
@@ -933,8 +1358,6 @@ export const register: Register = (on, options) => {
     }
     await update($, issues, () => live.spans.map(toIssue))
     await update($, isHidden, () => false)
-    await update($, hasDraft, () => live.hasDraft)
-    await setChecked($, false)
     await setOffering($, false)
     return next(e)
   })
@@ -958,20 +1381,27 @@ export const register: Register = (on, options) => {
     }
   })
 
+  on('command.run', { command: 'typo-words' }, async ($, e) => ({
+    text: await runWordsCommand($, e.args),
+  }))
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) {
       return next(e)
     }
-    const [list, hidden, draft, checked, offering, phrase] = await Promise.all([
+    const [list, hidden, offering, phrase] = await Promise.all([
       read($, issues),
       read($, isHidden),
-      read($, hasDraft),
-      read($, isChecked),
       read($, isOffering),
       read($, rephrase),
     ])
     const { Box, Button, Text } = $.ui.resolve(e)
-    const header = <Text dimColor>typofix · {live.shortcut}, then a key</Text>
+    const isClicked = e.surface === 'vscode'
+    const header = (
+      <Text dimColor>
+        typofix{isClicked ? '' : ` · ${live.shortcut}, then a key`}
+      </Text>
+    )
 
     if (phrase.status === 'loading') {
       return (
@@ -1055,34 +1485,8 @@ export const register: Register = (on, options) => {
       )
     }
 
-    if (offering || hidden || (list.length === 0 && !draft)) {
+    if (offering || hidden || list.length === 0) {
       return next(e)
-    }
-
-    if (list.length === 0) {
-      if (!checked) {
-        return next(e)
-      }
-      const verdict = live.backend === null ? '' : 'no typos · '
-      return (
-        <Box columnGap={1}>
-          <Text dimColor>
-            typofix · {verdict}
-            {live.shortcut}, then
-          </Text>
-          <Button
-            key="rephrase"
-            hotkey="r"
-            plain
-            dimColor
-            onPress={() => {
-              press($, rephraseDraft($))
-            }}
-          >
-            Rephrase
-          </Button>
-        </Box>
-      )
     }
 
     const room = Math.max(1, Math.min(MAX_LISTED, e.props.maxRows - 3))
@@ -1094,7 +1498,8 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Text dimColor>
-          typofix · {count} · {live.shortcut}, then a letter
+          typofix · {count} ·{' '}
+          {isClicked ? 'click a fix' : `${live.shortcut}, then a key`}
         </Text>
         {shown.map((issue, row) => (
           <Box key={`issue-${String(row + 1)}`} columnGap={2}>
@@ -1120,6 +1525,7 @@ export const register: Register = (on, options) => {
             {issue.kind === 'spelling' ? (
               <Button
                 key={`ignore-${String(row + 1)}`}
+                hotkey={String(row + 1)}
                 plain
                 dimColor
                 onPress={() => {
