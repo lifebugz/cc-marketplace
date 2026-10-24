@@ -117,6 +117,8 @@ interface World {
   isSubmitDropped: boolean
   submitHold: CallHold | undefined
   fillHold: CallHold | undefined
+  processHold: CallHold | undefined
+  root: string
   afterFill: ((text: string) => Promise<void>) | undefined
   isReadSilent: boolean
   surfaces: RenderSurface[]
@@ -342,6 +344,8 @@ function setup(
     isSubmitDropped: false,
     submitHold: undefined,
     fillHold: undefined,
+    processHold: undefined,
+    root: '/work',
     afterFill: undefined,
     isReadSilent: false,
     surfaces: [],
@@ -358,7 +362,7 @@ function setup(
     return { clientId: e.clientId }
   })
   on('session.surfaces', () => ({ value: [...world.surfaces] }))
-  on('session.root', () => ({ value: '/work' }))
+  on('session.root', () => ({ value: world.root }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('settings.read', () => {
     world.settingsReads += 1
@@ -421,6 +425,9 @@ function setup(
     return world.isSubmitDropped ? { drop: DROPPED } : { text: e.text }
   })
   on('process.run', async (_$, e) => {
+    const hold = world.processHold
+    world.processHold = undefined
+    await hold?.wait()
     const program = e.argv[0] ?? ''
     world.programs.push(program)
     world.argvs.push(e.argv)
@@ -1314,7 +1321,7 @@ describe('hunspell and the shortcut', () => {
     await band.press({ key: 'fix-1-1' })
     await world.clock.advance(400)
     expect(
-      await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
+      await band.find({ type: 'Text', text: /ctrl\+space, then a key/ }),
     ).toBeDefined()
   })
 
@@ -1340,7 +1347,7 @@ describe('hunspell and the shortcut', () => {
     await band.press({ key: 'fix-1-1' })
     await world.clock.advance(400)
     expect(
-      await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
+      await band.find({ type: 'Text', text: /ctrl\+space, then a key/ }),
     ).toBeDefined()
   })
 
@@ -1363,7 +1370,7 @@ describe('hunspell and the shortcut', () => {
     for (const surface of SURFACES) {
       const band = await $.ui.mount({ ...BAND, surface })
       expect(
-        await band.find({ type: 'Text', text: /ctrl\+space, then a letter/ }),
+        await band.find({ type: 'Text', text: /ctrl\+space, then a key/ }),
       ).toBeDefined()
       expect((await band.find({ key: 'fix-1-1' }))?.props['hotkey']).toBe('a')
       expect((await band.find({ key: 'fix-1-2' }))?.props['hotkey']).toBe('b')
@@ -1382,7 +1389,7 @@ describe('hunspell and the shortcut', () => {
 
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(
-      await band.find({ type: 'Text', text: /ctrl\+x tab, then a letter/ }),
+      await band.find({ type: 'Text', text: /ctrl\+x tab, then a key/ }),
     ).toBeDefined()
   })
 
@@ -2526,6 +2533,48 @@ describe('words that are not typos', () => {
     ])
   })
 
+  test('a word ignored while a check runs stays ignored when that check ends', async ($, on) => {
+    const world = setup(on, macFinds(...macIssues('teh')), 'fix teh bug now')
+    await startAndCheck($, world)
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await band.find({ key: 'ignore-1' })).toBeDefined()
+
+    const hold = holdCall()
+    world.processHold = hold
+    world.draft = 'fix teh bug now please'
+    await changeBox($, world.draft, 'history')
+    const checked = world.clock.advance(400)
+    await hold.reached
+    await band.press({ key: 'ignore-1' })
+    expect(await band.find({ key: 'ignore-1' })).toBeUndefined()
+
+    hold.release()
+    await checked
+    await world.clock.settle()
+    expect(world.programs.at(-1)).toBe('osascript')
+    expect(await band.find({ key: 'ignore-1' })).toBeUndefined()
+    expect(await band.find({ type: 'Text', text: /typofix/ })).toBeUndefined()
+  })
+
+  test('two ignores pressed at once keep both words', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(...macIssues('teh', 'wiht')),
+      'fix teh bug wiht care',
+    )
+    await startAndCheck($, world)
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+    await Promise.all([
+      band.press({ key: 'ignore-1' }),
+      band.press({ key: 'ignore-2' }),
+    ])
+    await world.clock.settle()
+    expect(world.files.get(USER_WORDS)).toBe(
+      wordFile(...USER_WORDS_HEADER, 'teh', 'wiht'),
+    )
+  })
+
   test('words ignored before the lists move from the store to the user list', async ($, on) => {
     const world = setup(on, macFinds(...macIssues('teh')), 'fix teh bug now')
     world.saved.set('ignored', ['teh', 'tovan'])
@@ -2569,18 +2618,15 @@ describe('/typo-words', () => {
     (await $.command.run({ ...TYPED, command: 'typo-words', args })).text
 
   test('with no arguments it lists the three lists, each with its path', async ($, on) => {
-    const world = setup(on, macFinds(), '')
+    const world = setup(on, macFinds(...macIssues('wiht')), 'fix wiht now')
     world.shipped = wordFile('# ships with typofix', 'frontmatter', 'ok')
     world.files.set(USER_WORDS, wordFile(...USER_WORDS_HEADER, 'Tovan'))
     await startAndCheck($, world)
 
-    const answer = await words($, '')
-    const shipped = world.shippedReads.at(-1) ?? ''
-    expect(shipped).toEndWith(SHIPPED_WORDS)
-    expect(answer).toBe(
+    expect(await words($, '')).toBe(
       [
-        'typofix never lists these words as typos, in every spell checker:',
-        `ships with typofix: 2 words in ${shipped}`,
+        'These words are never listed as typos, whichever spell checker flags them:',
+        `ships with typofix: 2 words in ${pluginRoot(world)}${SHIPPED_WORDS}`,
         '  frontmatter, ok',
         `yours, in all your projects: 1 word in ${USER_WORDS}`,
         '  Tovan',
@@ -2713,12 +2759,63 @@ describe('/typo-words', () => {
     })
   }
 
-  test('a word with no letter is refused and nothing is written', async ($, on) => {
+  test('a word with no letter, or with a #, is refused and nothing is written', async ($, on) => {
     const world = setup(on, macFinds(), '')
-    expect(await words($, 'add Tovan 123 --')).toBe(
-      'a word needs a letter: 123, --',
+    expect(await words($, 'add Tovan 123 -- #tag a#b')).toBe(
+      'not a word: 123, --, #tag, a#b (a word needs a letter, and # starts a comment)',
     )
+    expect(await words($, 'remove #tag')).toMatch(/^not a word: #tag /)
     expect(world.files.size).toBe(0)
+  })
+
+  test('the list says when it could not read a file, instead of 0 words', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    world.files.set(USER_WORDS, wordFile('Tovan'))
+    world.unreadable.add(USER_WORDS)
+
+    expect(await words($, '')).toContain(
+      `yours, in all your projects: could not read ${USER_WORDS}: EACCES: permission denied, open '${USER_WORDS}'`,
+    )
+  })
+
+  test('a session in the home folder has no project list, since that file is the user list', async ($, on) => {
+    const world = setup(
+      on,
+      macFinds(...macIssues('Tovan', 'wiht')),
+      'ask Tovan about wiht now',
+    )
+    world.root = '/home/someone'
+    world.files.set(USER_WORDS, wordFile('Tovan'))
+    await startAndCheck($, world)
+
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await band.find({ type: 'Text', text: /1 typo\b/ })).toBeDefined()
+    expect(await words($, '')).toContain(
+      'this project: none, since its .claude folder is yours',
+    )
+    expect(await words($, 'share Brevik')).toBe(
+      "no project list here: this project's .claude folder is your own. Use /typo-words add.",
+    )
+    expect(await words($, 'remove Tovan')).toBe(
+      `removed Tovan from ${USER_WORDS}`,
+    )
+    expect(world.files.get(USER_WORDS)).toBe('')
+  })
+
+  test('remove reports each file: a refused one does not hide the change to the other', async ($, on) => {
+    const world = setup(on, macFinds(), '')
+    world.files.set(USER_WORDS, wordFile('# mine', 'Tovan', 'teh'))
+    world.files.set(PROJECT_WORDS, wordFile('Tovan', 'Brevik'))
+    world.unreadable.add(PROJECT_WORDS)
+
+    expect(await words($, 'remove Tovan Brevik')).toBe(
+      [
+        `removed Tovan from ${USER_WORDS}`,
+        `could not change ${PROJECT_WORDS}: EACCES: permission denied, open '${PROJECT_WORDS}'`,
+      ].join('\n'),
+    )
+    expect(world.files.get(USER_WORDS)).toBe(wordFile('# mine', 'teh'))
+    expect(world.files.get(PROJECT_WORDS)).toBe(wordFile('Tovan', 'Brevik'))
   })
 
   test('a write the file system refuses gives its reason', async ($, on) => {

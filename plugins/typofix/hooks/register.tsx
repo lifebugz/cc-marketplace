@@ -18,7 +18,6 @@ import {
   focusShortcut,
   hunspellDictionary,
   isDictionaryLanguage,
-  isWord,
   listedWords,
   listSignature,
   maskCode,
@@ -86,6 +85,7 @@ interface Live {
   isReading: boolean
   pollTimer: Timer | undefined
   shippedKeys: ReadonlySet<string> | undefined
+  wordEdits: Promise<unknown>
 }
 
 const CHECK_DELAY_MS = 400
@@ -218,6 +218,7 @@ const live: Live = {
   isReading: false,
   pollTimer: undefined,
   shippedKeys: undefined,
+  wordEdits: Promise.resolve(),
 }
 
 function isPanel(): boolean {
@@ -469,15 +470,16 @@ async function checkedSpans(
 
 // Every engine's result leaves through here, so no backend can skip the word
 // lists; they filter the merged spans, so an ignored macOS word never lets an
-// overlapping hunspell word in.
+// overlapping hunspell word in. The lists are read once the engines answer,
+// so a word ignored while they run stays ignored.
 async function checkText(
   $: EngineInterface,
   text: string,
 ): Promise<Span[] | undefined> {
-  const ignored = readWordKeys($)
   const spans = await runBackends($, text)
-  const keys = await ignored
-  return spans === undefined ? undefined : withoutIgnored(spans, keys)
+  return spans === undefined
+    ? undefined
+    : withoutIgnored(spans, await readWordKeys($))
 }
 
 async function runBackends(
@@ -638,13 +640,24 @@ async function configDir($: EngineInterface): Promise<string> {
   )
 }
 
+async function userWordsPath($: EngineInterface): Promise<string> {
+  return `${await configDir($)}/${WORDS_FILE}`
+}
+
+// Undefined when the project's .claude folder is the user's own, as in a
+// session started in the home folder: that file is the user's list.
+async function projectWordsPath(
+  $: EngineInterface,
+): Promise<string | undefined> {
+  const path = `${await $.session.root()}/.claude/${WORDS_FILE}`
+  return path === (await userWordsPath($)) ? undefined : path
+}
+
 async function wordsPath(
   $: EngineInterface,
   level: WordLevel,
-): Promise<string> {
-  return level === 'user'
-    ? `${await configDir($)}/${WORDS_FILE}`
-    : `${await $.session.root()}/.claude/${WORDS_FILE}`
+): Promise<string | undefined> {
+  return level === 'user' ? userWordsPath($) : projectWordsPath($)
 }
 
 function shippedPath($: EngineInterface): string {
@@ -681,7 +694,7 @@ async function readWordList(
   $: EngineInterface,
   level: WordLevel,
 ): Promise<ReadonlySet<string>> {
-  let path: string
+  let path: string | undefined
   try {
     path = await wordsPath($, level)
   } catch (error) {
@@ -690,7 +703,9 @@ async function readWordList(
     })
     return new Set()
   }
-  return parseWordList((await readWordFile($, path)) ?? '')
+  return path === undefined
+    ? new Set()
+    : parseWordList((await readWordFile($, path)) ?? '')
 }
 
 async function readWordFile(
@@ -731,32 +746,41 @@ async function readForEdit($: EngineInterface, path: string): Promise<string> {
   return (await $.fs.exists(path)) ? $.fs.read(path) : ''
 }
 
+// An edit reads, changes and writes back the whole file, so two at once would
+// drop the words of one; they run one after another.
+async function oneEditAtATime<T>(edit: () => Promise<T>): Promise<T> {
+  const run = live.wordEdits.then(edit)
+  live.wordEdits = run.catch(() => undefined)
+  return run
+}
+
 async function addWords(
   $: EngineInterface,
-  level: WordLevel,
+  path: string,
+  header: readonly string[],
   words: readonly string[],
-): Promise<{ path: string; added: string[] }> {
-  const path = await wordsPath($, level)
-  const header = level === 'user' ? USER_WORDS_HEADER : PROJECT_WORDS_HEADER
-  const edited = addToWordList(await readForEdit($, path), words, header)
-  if (edited.added.length > 0) {
-    await $.fs.write(path, edited.text)
-  }
-  return { path, added: edited.added }
+): Promise<string[]> {
+  return oneEditAtATime(async () => {
+    const edited = addToWordList(await readForEdit($, path), words, header)
+    if (edited.added.length > 0) {
+      await $.fs.write(path, edited.text)
+    }
+    return edited.added
+  })
 }
 
 async function removeWords(
   $: EngineInterface,
-  level: WordLevel,
+  path: string,
   keys: ReadonlySet<string>,
-): Promise<{ path: string; removed: string[] }> {
-  const path = await wordsPath($, level)
-  const text = await readForEdit($, path)
-  const edited = removeFromWordList(text, keys)
-  if (edited.removed.length > 0) {
-    await $.fs.write(path, edited.text)
-  }
-  return { path, removed: edited.removed }
+): Promise<string[]> {
+  return oneEditAtATime(async () => {
+    const edited = removeFromWordList(await readForEdit($, path), keys)
+    if (edited.removed.length > 0) {
+      await $.fs.write(path, edited.text)
+    }
+    return edited.removed
+  })
 }
 
 async function moveLegacyWords($: EngineInterface): Promise<void> {
@@ -764,7 +788,8 @@ async function moveLegacyWords($: EngineInterface): Promise<void> {
   if (words.length === 0) {
     return
   }
-  const { path, added } = await addWords($, 'user', words)
+  const path = await userWordsPath($)
+  const added = await addWords($, path, USER_WORDS_HEADER, words)
   await $.store.delete(IGNORED_KEY)
   $.ui.log(
     `typofix: moved ${String(added.length)} ignored words from the store to ${path}`,
@@ -968,7 +993,7 @@ async function readShortcut($: EngineInterface): Promise<void> {
 }
 
 async function ignoreWord($: EngineInterface, word: string): Promise<void> {
-  await addWords($, 'user', [word])
+  await addWords($, await userWordsPath($), USER_WORDS_HEADER, [word])
   const { text } = await $.prompt.read()
   await syncDraft($, text)
   const rest = withoutIgnored(live.spans, new Set([wordKey(word)]))
@@ -1059,9 +1084,9 @@ async function runWordsCommand(
   if (action !== '' && (!isEdit || words.length === 0)) {
     return WORDS_USAGE
   }
-  const notWords = words.filter(word => !isWord(writtenWord(word)))
+  const notWords = words.filter(word => !isOneWord(word))
   if (notWords.length > 0) {
-    return `a word needs a letter: ${notWords.join(', ')}`
+    return `not a word: ${notWords.join(', ')} (a word needs a letter, and # starts a comment)`
   }
   try {
     if (action === '') {
@@ -1075,32 +1100,48 @@ async function runWordsCommand(
   }
 }
 
+// A list file keeps only what its parser reads back, so an argument must read
+// back as itself: `#tag` would be a comment and `a#b` the word `a`.
+function isOneWord(word: string): boolean {
+  const parsed = listedWords(word)
+  return parsed.length === 1 && parsed[0] === writtenWord(word)
+}
+
 async function listWords($: EngineInterface): Promise<string> {
-  const shipped = shippedPath($)
-  const user = await wordsPath($, 'user')
-  const project = await wordsPath($, 'project')
+  const project = await projectWordsPath($)
   const legacy = await readLegacyWords($)
   return [
-    'typofix never lists these words as typos, in every spell checker:',
-    describeList(
-      'ships with typofix',
-      shipped,
-      listedWords((await readWordFile($, shipped)) ?? ''),
-    ),
-    describeList(
+    // Claude Code shows a mod's reply after `typofix: `.
+    'These words are never listed as typos, whichever spell checker flags them:',
+    await describeFile($, 'ships with typofix', shippedPath($)),
+    await describeFile(
+      $,
       'yours, in all your projects',
-      user,
-      listedWords((await readWordFile($, user)) ?? ''),
+      await userWordsPath($),
     ),
-    describeList(
-      'this project, for everyone who commits the file',
-      project,
-      listedWords((await readWordFile($, project)) ?? ''),
-    ),
+    project === undefined
+      ? `this project: none, since its .claude folder is yours`
+      : await describeFile(
+          $,
+          'this project, for everyone who commits the file',
+          project,
+        ),
     ...(legacy.length > 0
       ? [`still in the store, moved at the next start: ${legacy.join(', ')}`]
       : []),
   ].join('\n')
+}
+
+async function describeFile(
+  $: EngineInterface,
+  name: string,
+  path: string,
+): Promise<string> {
+  try {
+    return describeList(name, path, listedWords(await readForEdit($, path)))
+  } catch (error) {
+    return `${name}: could not read ${path}: ${reasonOf(error, $.plugin.name)}`
+  }
 }
 
 function describeList(
@@ -1118,12 +1159,18 @@ async function addCommand(
   level: WordLevel,
   words: readonly string[],
 ): Promise<string> {
+  const path = await wordsPath($, level)
+  if (path === undefined) {
+    return "no project list here: this project's .claude folder is your own. Use /typo-words add."
+  }
+  const header = level === 'user' ? USER_WORDS_HEADER : PROJECT_WORDS_HEADER
   const shipped = await readShippedKeys($)
   const asked = listedWords(words.join('\n'))
   const isShipped = (word: string): boolean => shipped.has(wordKey(word))
-  const { path, added } = await addWords(
+  const added = await addWords(
     $,
-    level,
+    path,
+    header,
     asked.filter(word => !isShipped(word)),
   )
   const isAdded = (word: string): boolean =>
@@ -1150,23 +1197,45 @@ async function removeCommand(
   const asked = listedWords(words.join('\n'))
   const keys = new Set(asked.map(wordKey))
   const shipped = await readShippedKeys($)
+  const project = await projectWordsPath($)
   const edits = [
-    await removeWords($, 'user', keys),
-    await removeWords($, 'project', keys),
+    await removeFrom($, await userWordsPath($), keys),
+    ...(project === undefined ? [] : [await removeFrom($, project, keys)]),
   ]
   const removed = new Set(edits.flatMap(edit => edit.removed).map(wordKey))
+  const isListedNowhere = edits.every(edit => edit.error === undefined)
   const missing = asked.filter(
     word => !removed.has(wordKey(word)) && !shipped.has(wordKey(word)),
   )
   return [
-    ...edits
-      .filter(edit => edit.removed.length > 0)
-      .map(edit => `removed ${edit.removed.join(', ')} from ${edit.path}`),
+    ...edits.flatMap(edit => {
+      if (edit.error !== undefined) {
+        return [`could not change ${edit.path}: ${edit.error}`]
+      }
+      return edit.removed.length > 0
+        ? [`removed ${edit.removed.join(', ')} from ${edit.path}`]
+        : []
+    }),
     ...asked
       .filter(word => shipped.has(wordKey(word)))
       .map(word => `${word} ships with typofix, so it stays ignored`),
-    ...(missing.length > 0 ? [`not in your lists: ${missing.join(', ')}`] : []),
+    ...(isListedNowhere && missing.length > 0
+      ? [`not in your lists: ${missing.join(', ')}`]
+      : []),
   ].join('\n')
+}
+
+// One file's refusal must not hide what changed in the other.
+async function removeFrom(
+  $: EngineInterface,
+  path: string,
+  keys: ReadonlySet<string>,
+): Promise<{ path: string; removed: string[]; error?: string }> {
+  try {
+    return { path, removed: await removeWords($, path, keys) }
+  } catch (error) {
+    return { path, removed: [], error: reasonOf(error, $.plugin.name) }
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -1430,7 +1499,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Text dimColor>
           typofix · {count} ·{' '}
-          {isClicked ? 'click a fix' : `${live.shortcut}, then a letter`}
+          {isClicked ? 'click a fix' : `${live.shortcut}, then a key`}
         </Text>
         {shown.map((issue, row) => (
           <Box key={`issue-${String(row + 1)}`} columnGap={2}>

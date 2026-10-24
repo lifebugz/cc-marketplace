@@ -77,7 +77,8 @@ const LATIN = /\p{Script=Latin}/u
 const SPACE = /\s/
 const SPACES = /\s+/u
 const EDGE_NON_WORD = /^[^\p{L}\p{N}\p{M}]+|[^\p{L}\p{N}\p{M}]+$/gu
-const WORD_LIST_COMMENT = /#.*$/u
+// No `$` anchor: `.` stops at the `\r` that ends a CRLF line, and `$` would not.
+const WORD_LIST_COMMENT = /#.*/u
 const WORD_LIST_FORMAT = '# One word a line. Text after # is a comment.'
 
 export const USER_WORDS_HEADER: readonly string[] = [

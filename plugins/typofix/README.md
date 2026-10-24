@@ -88,7 +88,7 @@ the band's focus action:
 ```
 
 If the file already has a `bindings` list, add the block to it. From the next
-check on, the band's header names your key (`ctrl+space, then a letter`), and
+check on, the band's header names your key (`ctrl+space, then a key`), and
 ctrl+x tab keeps working too.
 
 Pick a key that nothing else on your computer uses. If you type in more than one
@@ -99,8 +99,8 @@ Sources first: macOS can use Ctrl+Space to switch the keyboard language.
 
 A spell checker flags some words that are fine, such as names, `ok` or
 `frontmatter`. typofix keeps three lists of such words. It never lists a word
-that is in one of them, whichever spell checker flagged it (macOS, hunspell or
-enchant-2).
+in them as a spelling mistake, whichever spell checker flagged it (macOS,
+hunspell or enchant-2). Grammar notes still show.
 
 | List    | File                                     | For                    | How a word gets in                              |
 | :------ | :--------------------------------------- | :--------------------- | :---------------------------------------------- |
@@ -109,7 +109,10 @@ enchant-2).
 | Project | `.claude/typofix-words.txt` in a project | everyone in a project  | `/typo-words share`, then commit the file       |
 
 `~/.claude` is your `CLAUDE_CONFIG_DIR` when you set one. The project list is in
-the project's root folder, where the session started.
+the session's project folder: where the session started, or where `/cd` or a
+worktree move took it. When that folder's `.claude` is your own Claude Code
+folder (a session started in your home folder, for example), there is no
+project list: that file is your list.
 
 Each file is plain text: one word a line, and text after `#` is a comment. Case
 does not matter (`Tovan` also covers `tovan`), and neither do straight or curly

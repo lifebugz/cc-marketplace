@@ -834,6 +834,22 @@ describe('word lists', () => {
     expect(parseWordList('')).toEqual(new Set())
   })
 
+  test('a file with Windows line ends keeps its comments as comments', () => {
+    const text = [
+      '# my words',
+      'webhook webhooks # api terms',
+      '# just a note on teh',
+      'foo',
+      '',
+    ].join('\r\n')
+    expect(listedWords(text)).toEqual(['webhook', 'webhooks', 'foo'])
+    expect(parseWordList(text).has('teh')).toBe(false)
+    expect(removeFromWordList(text, new Set(['webhooks'])).text).toBe(
+      '# my words\r\nwebhook # api terms\n# just a note on teh\r\nfoo\r\n',
+    )
+    expect(addToWordList(text, ['terms'], HEADER).added).toEqual(['terms'])
+  })
+
   test('only spelling issues are taken out, by key', () => {
     const text = 'Tovan go to teh park'
     const spans = [
