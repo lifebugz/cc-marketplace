@@ -140,21 +140,25 @@ The mod also enforces some rules in code:
 
 ## Secrets and 1Password
 
-The `secrets` setting says where your secrets live. Pick it in `/config`, or
-with `/plugin configure htl`. A stored value that is neither option counts as
-unset, so the default applies.
+There is nothing to set. When a session starts, the mod runs `op --version`.
+It needs no sign-in, so it never raises a 1Password prompt.
 
-- `1password` (the default): Claude uses a secret **without seeing it**. It
-  writes an `op://<vault>/<item>/<field>` reference and runs the command with
-  `op run --env-file=<file> -- <command>`, or renders a config with
-  `op inject -i <template> -o <file>`. 1Password asks you to approve with its
-  own Touch ID prompt; that is not an HTL task. Claude is told never to run
-  `op read`, `--reveal` or `--no-masking` in its own shell, so a value never
-  reaches its output. A `secret` task is only for a secret that is **not in
-  1Password yet**: the mod refuses one unless Claude says what it checked in
-  1Password and the steps name the exact `op://` reference to save it under.
-- `none`: no secret manager. Claude may assign a `secret` task without the
-  1Password checks.
+- **The 1Password CLI runs**: Claude uses a secret in 1Password **without
+  seeing it**. It writes an `op://<vault>/<item>/<field>` reference and runs
+  the command with `op run --env-file=<file> -- <command>`, or renders a
+  config with `op inject -i <template> -o <file>`. 1Password asks you to
+  approve with its own Touch ID prompt; that is not an HTL task. Claude is
+  told never to run `op read`, `--reveal` or `--no-masking` in its own shell,
+  so a value never reaches its output. A `secret` task is only for a secret
+  that is **not in 1Password**: the mod refuses one unless Claude says what it
+  checked in 1Password. The steps may suggest an `op://` reference to save a
+  new secret under, but you decide where it goes. If you keep a secret
+  somewhere else, Claude uses it from there.
+- **No `op`, or `op --version` fails**: Claude may assign a `secret` task
+  without the 1Password checks. A failed run goes to the debug log.
+
+The mod runs `op` without a shell, so `op` must be on the `PATH` that Claude
+Code itself started with.
 
 Claude never feeds a password into `sudo` or a login prompt, even from
 1Password. That stays a task for you.

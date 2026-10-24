@@ -27,7 +27,6 @@ import {
   parseRequest,
   refusalText,
   reminderLine,
-  secretsMode,
   statusLine,
   taskListText,
   toolDescription,
@@ -52,6 +51,7 @@ const view = atom({ plugin: 'htl', key: 'view' } as const, FIRST_CARD)
 let queue: Promise<unknown> = Promise.resolve()
 let gateLifts = 0
 let isToolRegistered = false
+let detectedSecrets: SecretsMode | undefined
 
 interface Committed {
   readonly task: HtlTask
@@ -73,16 +73,34 @@ function logError($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`htl: ${what}: ${messageOf(error)}`, { to: 'debug' })
 }
 
+// `op --version` needs no sign-in, so the check never raises a 1Password
+// prompt. assign checks too: a copy reloaded in an SDK host gets no
+// session.attach, so registerTool never runs in it. Only an exit code is
+// kept: a missing `op` rejects, but so does an aborted or timed-out run.
+async function detectSecrets($: EngineInterface): Promise<SecretsMode> {
+  if (detectedSecrets !== undefined) {
+    return detectedSecrets
+  }
+  try {
+    const version = await $.process.run(['op', '--version'], {
+      timeoutMs: 2000,
+    })
+    detectedSecrets = version.exitCode === 0 ? '1password' : 'none'
+    return detectedSecrets
+  } catch (error) {
+    logError($, 'op --version did not run, so no 1Password rules', error)
+    return 'none'
+  }
+}
+
 // The flag is set before the await: session.start and session.attach can
 // overlap, and a second client (a phone) attaches again.
-async function registerTool(
-  $: EngineInterface,
-  secrets: SecretsMode,
-): Promise<void> {
+async function registerTool($: EngineInterface): Promise<void> {
   if (isToolRegistered) {
     return
   }
   isToolRegistered = true
+  const secrets = await detectSecrets($)
   try {
     await $.tool.register({
       name: TOOL_NAME,
@@ -125,11 +143,7 @@ async function notify($: EngineInterface, task: HtlTask): Promise<void> {
   }
 }
 
-async function assign(
-  $: EngineInterface,
-  e: unknown,
-  secrets: SecretsMode,
-): Promise<string> {
+async function assign($: EngineInterface, e: unknown): Promise<string> {
   const parsed = parseRequest(e)
   if (parsed.problems !== undefined) {
     return refusalText(parsed.problems)
@@ -138,7 +152,7 @@ async function assign(
   const refusal = validateRequest(parsed.request, {
     open: await read($, tasks),
     closed: await read($, closed),
-    secrets,
+    secrets: await detectSecrets($),
   })
   if (refusal !== undefined) {
     return refusal
@@ -335,12 +349,10 @@ function run(
   })
 }
 
-export const register: Register = (on, options) => {
-  const secrets = secretsMode(options['secrets'])
-
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     if (e.isInteractive) {
-      await registerTool($, secrets)
+      await registerTool($)
     }
 
     const open = await read($, tasks)
@@ -364,7 +376,7 @@ export const register: Register = (on, options) => {
   // The VS Code extension runs the session through the SDK: session.start
   // says isInteractive false, and the panel attaches right after it.
   on('session.attach', async ($, e, next) => {
-    await registerTool($, secrets)
+    await registerTool($)
     return next(e)
   })
 
@@ -372,7 +384,7 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       return { result: SUBAGENT_REFUSAL }
     }
-    return { result: await serial(async () => assign($, e, secrets)) }
+    return { result: await serial(async () => assign($, e)) }
   }).catch((_$, _e, next) => ({
     result: `htl failed: ${next.error.message ?? next.error.kind}`,
   }))
