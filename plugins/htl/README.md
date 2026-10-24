@@ -152,8 +152,8 @@ It needs no sign-in, so it never raises a 1Password prompt.
   so a value never reaches its output. A `secret` task is only for a secret
   that is **not in 1Password**: the mod refuses one unless Claude says what it
   checked in 1Password. The steps may suggest an `op://` reference to save a
-  new secret under, but you decide where it goes. A secret you keep somewhere
-  else, Claude uses from there.
+  new secret under, but you decide where it goes. If you keep a secret
+  somewhere else, Claude uses it from there.
 - **No `op`, or `op --version` fails**: Claude may assign a `secret` task
   without the 1Password checks. A failed run goes to the debug log.
 
