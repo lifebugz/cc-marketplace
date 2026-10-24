@@ -51,7 +51,7 @@ const view = atom({ plugin: 'htl', key: 'view' } as const, FIRST_CARD)
 let queue: Promise<unknown> = Promise.resolve()
 let gateLifts = 0
 let isToolRegistered = false
-let secrets: SecretsMode = 'none'
+let detectedSecrets: SecretsMode | undefined
 
 interface Committed {
   readonly task: HtlTask
@@ -74,14 +74,21 @@ function logError($: EngineInterface, what: string, error: unknown): void {
 }
 
 // `op --version` needs no sign-in, so the check never raises a 1Password
-// prompt. A missing `op` makes the call reject.
+// prompt. assign checks too: a copy reloaded in an SDK host gets no
+// session.attach, so registerTool never runs in it. Only an exit code is
+// kept: a missing `op` rejects, but so does an aborted or timed-out run.
 async function detectSecrets($: EngineInterface): Promise<SecretsMode> {
+  if (detectedSecrets !== undefined) {
+    return detectedSecrets
+  }
   try {
     const version = await $.process.run(['op', '--version'], {
       timeoutMs: 2000,
     })
-    return version.exitCode === 0 ? '1password' : 'none'
-  } catch {
+    detectedSecrets = version.exitCode === 0 ? '1password' : 'none'
+    return detectedSecrets
+  } catch (error) {
+    logError($, 'op --version did not run, so no 1Password rules', error)
     return 'none'
   }
 }
@@ -93,7 +100,7 @@ async function registerTool($: EngineInterface): Promise<void> {
     return
   }
   isToolRegistered = true
-  secrets = await detectSecrets($)
+  const secrets = await detectSecrets($)
   try {
     await $.tool.register({
       name: TOOL_NAME,
@@ -145,7 +152,7 @@ async function assign($: EngineInterface, e: unknown): Promise<string> {
   const refusal = validateRequest(parsed.request, {
     open: await read($, tasks),
     closed: await read($, closed),
-    secrets,
+    secrets: await detectSecrets($),
   })
   if (refusal !== undefined) {
     return refusal

@@ -315,6 +315,7 @@ describe('the tool', () => {
     await $.session.attach({ surface: 'vscode', clientId: 'vscode-1' })
     await $.session.attach({ surface: 'mobile', clientId: 'mobile:default' })
     expect(world.tools.map(tool => tool.name)).toEqual(['assign_task'])
+    expect(world.probes).toHaveLength(1)
   })
 
   test('a phone that attaches to a terminal session adds no second tool', async ($, on) => {
@@ -322,6 +323,7 @@ describe('the tool', () => {
     await start($)
     await $.session.attach({ surface: 'mobile', clientId: 'mobile:default' })
     expect(world.tools).toHaveLength(1)
+    expect(world.probes).toHaveLength(1)
   })
 
   test('with no op on the PATH, the description has no 1Password rules', async ($, on) => {
@@ -794,7 +796,7 @@ describe('refusals', () => {
   })
 
   test('a secret task with no 1Password evidence is refused', async ($, on) => {
-    setup(on)
+    const world = setup(on)
     await start($)
     expect(
       await assign($, {
@@ -807,6 +809,44 @@ describe('refusals', () => {
         'The 1Password CLI is installed, so check 1Password first.',
       ),
     })
+    expect(world.probes).toHaveLength(1)
+  })
+
+  test('a copy reloaded in an SDK host gets no attach, and still asks for 1Password first', async ($, on) => {
+    const world = setup(on)
+    await start($, false)
+    expect(
+      await assign($, {
+        ...LOGIN,
+        blocker: 'secret',
+        tried: 'Looked in .env.',
+      }),
+    ).toMatchObject({
+      result: expect.stringContaining(
+        'The 1Password CLI is installed, so check 1Password first.',
+      ),
+    })
+    expect(world.probes).toEqual([['op', '--version']])
+  })
+
+  test('an op --version that did not run is logged, and tried again at the next task', async ($, on) => {
+    const world = setup(on)
+    world.opExitCode = undefined
+    await start($)
+    expect(world.logs.join('\n')).toContain('htl: op --version did not run')
+    world.opExitCode = 0
+    expect(
+      await assign($, {
+        ...LOGIN,
+        blocker: 'secret',
+        tried: 'Looked in .env.',
+      }),
+    ).toMatchObject({
+      result: expect.stringContaining(
+        'The 1Password CLI is installed, so check 1Password first.',
+      ),
+    })
+    expect(world.probes).toHaveLength(2)
   })
 
   test('without op, a secret task needs no 1Password evidence', async ($, on) => {
