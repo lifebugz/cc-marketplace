@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.309.
+// Written by Claude Code 2.1.310.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -5455,8 +5455,9 @@ declare module 'claude-code' {
   /**
    * The props of `Image`, the terminal surface's picture leaf: pixels over a
    * box of cells where the terminal can (kitty and Ghostty, or iTerm2 3.5 and
-   * later for `png` and `rgba` bytes under fullscreen rendering), the `alt`
-   * elsewhere.
+   * later for `png` and `rgba` bytes under fullscreen rendering; inside tmux
+   * too, for bytes only, with tmux's `allow-passthrough` and `focus-events`
+   * on), the `alt` elsewhere.
    *
    * A leaf: no children, `hover` or `onPress`; the cells are text, so the
    * picture scrolls and clips as a word does. Drawn again with another `source`
@@ -14620,6 +14621,13 @@ declare module 'claude-code' {
        * draws its `alt` there. With no surface attached `no-surface` heads it.
        */
       deny?: string;
+      /**
+       * With `deny`, a stable code to key on instead of the words of `deny`.
+       * `tmux-passthrough`: tmux 3.3 or later holds back images the terminal
+       * outside it can draw, because `allow-passthrough` or `focus-events` is off;
+       * both must be on. Absent for every other cause.
+       */
+      fix?: 'tmux-passthrough';
   };
 
   /**
