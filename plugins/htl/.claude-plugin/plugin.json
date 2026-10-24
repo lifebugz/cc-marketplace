@@ -1,0 +1,18 @@
+{
+  "name": "htl",
+  "version": "0.1.0",
+  "description": "Human in the loop: Claude hands you a job it truly cannot do (a 2FA login, a missing secret, a physical step, a payment), you answer in a pane, and Claude carries on.",
+  "author": {
+    "name": "lifebugz"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "secrets": {
+      "type": "string",
+      "title": "Where your secrets live",
+      "description": "1password: Claude uses secrets through op:// references with op run or op inject, and asks you only for a secret that is not in 1Password yet. none: no secret manager.",
+      "options": ["1password", "none"],
+      "default": "1password"
+    }
+  }
+}
