@@ -66,6 +66,8 @@ interface World {
   logs: string[]
   submitted: Submitted[]
   ran: string[]
+  probes: (readonly string[])[]
+  opExitCode: number | undefined
   isPlaced: boolean
   isOpenRefused: boolean
   clock: MockClock
@@ -88,6 +90,8 @@ function setup(on: On): World {
     logs: [],
     submitted: [],
     ran: [],
+    probes: [],
+    opExitCode: 0,
     isPlaced: true,
     isOpenRefused: false,
     clock: mock.clock(on),
@@ -100,6 +104,21 @@ function setup(on: On): World {
   }
   on('session.start', () => ({ cwd: '/work' }))
   on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('process.run', (_$, e) => {
+    world.probes.push(e.argv)
+    if (world.opExitCode === undefined) {
+      return { deny: 'spawn op ENOENT' }
+    }
+    return {
+      value: {
+        exitCode: world.opExitCode,
+        stdout: '',
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
   on('tool.register', (_$, e) => {
     world.tools.push(e)
     return { value: { tool: `mcp__htl__${e.name}` } }
@@ -266,6 +285,7 @@ describe('the tool', () => {
   test('an interactive session gets the tool, with the 1Password rules, and /htl', async ($, on) => {
     const world = setup(on)
     await start($)
+    expect(world.probes).toEqual([['op', '--version']])
     expect(world.tools).toHaveLength(1)
     const [tool] = world.tools
     expect(tool?.name).toBe('assign_task')
@@ -304,16 +324,20 @@ describe('the tool', () => {
     expect(world.tools).toHaveLength(1)
   })
 
-  test(
-    'secrets: none gives a description without the 1Password rules',
-    { options: { secrets: 'none' } },
-    async ($, on) => {
-      const world = setup(on)
-      await start($)
-      expect(world.tools[0]?.description).not.toContain('1Password')
-      expect(world.tools[0]?.description).toContain('AskUserQuestion')
-    },
-  )
+  test('with no op on the PATH, the description has no 1Password rules', async ($, on) => {
+    const world = setup(on)
+    world.opExitCode = undefined
+    await start($)
+    expect(world.tools[0]?.description).not.toContain('1Password')
+    expect(world.tools[0]?.description).toContain('AskUserQuestion')
+  })
+
+  test('an op that exits with an error counts as no 1Password', async ($, on) => {
+    const world = setup(on)
+    world.opExitCode = 1
+    await start($)
+    expect(world.tools[0]?.description).not.toContain('1Password')
+  })
 })
 
 describe('now mode', () => {
@@ -779,8 +803,23 @@ describe('refusals', () => {
         tried: 'Looked in .env.',
       }),
     ).toMatchObject({
-      result: expect.stringContaining('Your secrets are in 1Password.'),
+      result: expect.stringContaining(
+        'The 1Password CLI is installed, so check 1Password first.',
+      ),
     })
+  })
+
+  test('without op, a secret task needs no 1Password evidence', async ($, on) => {
+    const world = setup(on)
+    world.opExitCode = undefined
+    await start($)
+    expect(
+      await assign($, {
+        ...LOGIN,
+        blocker: 'secret',
+        tried: 'Looked in .env.',
+      }),
+    ).toMatchObject({ result: expect.stringContaining('Assigned as task #1') })
   })
 
   test('a rejected task is refused when assigned again', async ($, on) => {
