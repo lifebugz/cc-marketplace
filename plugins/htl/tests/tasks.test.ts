@@ -216,7 +216,7 @@ describe('validateRequest', () => {
 
   describe('1Password', () => {
     const NO_EVIDENCE =
-      'Not assigned. The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
+      'Not assigned. The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found. Run the check yourself; don\'t ask the user to.'
 
     test('a secret task that names 1Password and an op:// reference is allowed', () => {
       expect(validateRequest(SECRET, EMPTY)).toBeUndefined()
@@ -343,6 +343,20 @@ describe('the tool description', () => {
     expect(toolDescription('1password')).toContain('op inject -i')
     expect(toolDescription('none')).not.toContain('1Password')
     expect(toolDescription('none')).not.toContain('op://')
+  })
+
+  test('under 1password, Claude checks the likeliest item itself, alone, and never hands the check to the user', () => {
+    const rules = toolDescription('1password')
+    expect(rules).toContain(
+      'check its most likely item name first, as a command of its own',
+    )
+    expect(rules).toContain(
+      '`op item get "<item>" --vault "<vault>" > /dev/null` (exit 0 means it exists)',
+    )
+    expect(rules).toContain("Don't list vaults or loop over names")
+    expect(rules).toContain(
+      "If a check is denied, don't ask the user to run it",
+    )
   })
 
   test('the rule against asking for or printing a secret holds with or without op', () => {

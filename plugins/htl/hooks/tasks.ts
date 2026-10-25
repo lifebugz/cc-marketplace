@@ -249,7 +249,7 @@ function refusalOf(
     return undefined
   }
   if (!ONE_PASSWORD_EVIDENCE.test(request.tried)) {
-    return 'The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
+    return 'The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found. Run the check yourself; don\'t ask the user to.'
   }
   return undefined
 }
@@ -286,7 +286,8 @@ const ONE_PASSWORD_RULES = `
 
 The 1Password CLI (op) is installed:
 - Use a secret that is in 1Password through an op://<vault>/<item>/<field> reference: run the command with \`op run --env-file=<file> -- <cmd>\`, or render a config with \`op inject -i <template> -o <file>\`. A resolved file must be gitignored and deleted when you are done. For a secret the user keeps somewhere else, use it from there.
-- Never let a value reach your output: don't run \`op read\`, \`--reveal\` or \`--no-masking\` in your own shell. To check that an item exists, discard the output: \`op item get "<item>" --vault "<vault>" > /dev/null\`.
+- Never let a value reach your output: don't run \`op read\`, \`--reveal\` or \`--no-masking\` in your own shell.
+- To find a secret, check its most likely item name first, as a command of its own with the output discarded: \`op item get "<item>" --vault "<vault>" > /dev/null\` (exit 0 means it exists). Don't list vaults or loop over names: auto mode may deny that as credential exploration. If a check is denied, don't ask the user to run it: say in "tried" what was denied, and assign the secret task.
 - A 1Password Touch ID or unlock prompt is not a task: the user answers it. If \`op\` fails because 1Password is locked, not signed in, or its CLI integration is off, that is not a task either: say so in one line and ask whether to use 1Password or where else they keep the secret.
 - A "secret" task is only for a secret you could not find in 1Password: "tried" says what you checked in 1Password. The steps may suggest an op://<vault>/<item>/<field> reference to save it under, with real names; the user decides where it goes.`
 
