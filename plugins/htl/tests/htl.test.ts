@@ -334,11 +334,22 @@ describe('the tool', () => {
     expect(world.tools[0]?.description).toContain('AskUserQuestion')
   })
 
-  test('an op that exits with an error counts as no 1Password', async ($, on) => {
+  test('an op that exits with an error counts as no 1Password, and is logged', async ($, on) => {
     const world = setup(on)
     world.opExitCode = 1
     await start($)
     expect(world.tools[0]?.description).not.toContain('1Password')
+    expect(world.logs).toContain(
+      'htl: op --version failed, so no 1Password rules: exit code 1',
+    )
+    expect(
+      await assign($, {
+        ...LOGIN,
+        blocker: 'secret',
+        tried: 'Looked in .env.',
+      }),
+    ).toMatchObject({ result: expect.stringContaining('Assigned as task #1') })
+    expect(world.probes).toHaveLength(1)
   })
 })
 
@@ -829,11 +840,14 @@ describe('refusals', () => {
     expect(world.probes).toEqual([['op', '--version']])
   })
 
-  test('an op --version that did not run is logged, and tried again at the next task', async ($, on) => {
+  test('an op --version that did not run counts as no 1Password for the whole session, like the rules Claude got', async ($, on) => {
     const world = setup(on)
     world.opExitCode = undefined
     await start($)
-    expect(world.logs.join('\n')).toContain('htl: op --version did not run')
+    expect(world.tools[0]?.description).not.toContain('1Password')
+    expect(world.logs.join('\n')).toContain(
+      'htl: op --version failed, so no 1Password rules',
+    )
     world.opExitCode = 0
     expect(
       await assign($, {
@@ -841,12 +855,8 @@ describe('refusals', () => {
         blocker: 'secret',
         tried: 'Looked in .env.',
       }),
-    ).toMatchObject({
-      result: expect.stringContaining(
-        'The 1Password CLI is installed, so check 1Password first.',
-      ),
-    })
-    expect(world.probes).toHaveLength(2)
+    ).toMatchObject({ result: expect.stringContaining('Assigned as task #1') })
+    expect(world.probes).toHaveLength(1)
   })
 
   test('without op, a secret task needs no 1Password evidence', async ($, on) => {

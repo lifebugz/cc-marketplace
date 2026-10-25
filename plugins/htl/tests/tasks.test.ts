@@ -243,6 +243,34 @@ describe('validateRequest', () => {
       ).toBeUndefined()
     })
 
+    test('the op://<vault>/<item>/<field> placeholder is refused, with or without op', () => {
+      const PLACEHOLDER =
+        'Not assigned. The steps hold the op://<vault>/<item>/<field> placeholder. Name the real vault, item and field, or leave the op:// suggestion out, then call mcp__htl__assign_task again.'
+      const steps = 'Save it as `op://<vault>/<item>/<field>`.'
+      expect(validateRequest({ ...SECRET, steps }, EMPTY)).toBe(PLACEHOLDER)
+      expect(
+        validateRequest({ ...SECRET, steps }, { ...EMPTY, secrets: 'none' }),
+      ).toBe(PLACEHOLDER)
+      expect(
+        validateRequest(
+          { ...SECRET, steps: 'Save it as `op://Private/<item>/credential`.' },
+          EMPTY,
+        ),
+      ).toBe(PLACEHOLDER)
+    })
+
+    test('real vault, item and field names may hold spaces', () => {
+      expect(
+        validateRequest(
+          {
+            ...SECRET,
+            steps: 'Save it as `op://Team Vault/GitHub PAT/credential`.',
+          },
+          EMPTY,
+        ),
+      ).toBeUndefined()
+    })
+
     test('under none, a secret task needs no 1Password evidence', () => {
       expect(
         validateRequest(
@@ -315,6 +343,12 @@ describe('the tool description', () => {
     expect(toolDescription('1password')).toContain('op inject -i')
     expect(toolDescription('none')).not.toContain('1Password')
     expect(toolDescription('none')).not.toContain('op://')
+  })
+
+  test('the rule against asking for or printing a secret holds with or without op', () => {
+    const rule = 'Never ask the user for a secret value, and never print one.'
+    expect(toolDescription('1password')).toContain(rule)
+    expect(toolDescription('none')).toContain(rule)
   })
 
   test('both versions fit the 4096 characters the model is sent', () => {

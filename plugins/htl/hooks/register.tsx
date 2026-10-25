@@ -42,6 +42,7 @@ const FIRST_CARD: View = { step: 'decide', taskId: null }
 // the turn ("submit from a later event"), so a command's answer goes out on a
 // timer that fires once the command has finished.
 const COMMAND_SEND_DELAY_MS = 100
+const NO_OP = 'op --version failed, so no 1Password rules'
 
 const tasks = atom({ plugin: 'htl', key: 'tasks' } as const, [])
 const closed = atom({ plugin: 'htl', key: 'closed' } as const, [])
@@ -75,22 +76,27 @@ function logError($: EngineInterface, what: string, error: unknown): void {
 
 // `op --version` needs no sign-in, so the check never raises a 1Password
 // prompt. assign checks too: a copy reloaded in an SDK host gets no
-// session.attach, so registerTool never runs in it. Only an exit code is
-// kept: a missing `op` rejects, but so does an aborted or timed-out run.
+// session.attach, so registerTool never runs in it. A failed run is kept
+// like any answer, so the rules Claude was given and assign's checks agree.
 async function detectSecrets($: EngineInterface): Promise<SecretsMode> {
   if (detectedSecrets !== undefined) {
     return detectedSecrets
   }
+  let secrets: SecretsMode = 'none'
   try {
     const version = await $.process.run(['op', '--version'], {
       timeoutMs: 2000,
     })
-    detectedSecrets = version.exitCode === 0 ? '1password' : 'none'
-    return detectedSecrets
+    if (version.exitCode === 0) {
+      secrets = '1password'
+    } else {
+      logError($, NO_OP, `exit code ${String(version.exitCode)}`)
+    }
   } catch (error) {
-    logError($, 'op --version did not run, so no 1Password rules', error)
-    return 'none'
+    logError($, NO_OP, error)
   }
+  detectedSecrets = secrets
+  return secrets
 }
 
 // The flag is set before the await: session.start and session.attach can
