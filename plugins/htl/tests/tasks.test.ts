@@ -345,7 +345,7 @@ describe('the tool description', () => {
     expect(toolDescription('none')).not.toContain('op://')
   })
 
-  test('under 1password, Claude checks the likeliest item itself, alone, and never hands the check to the user', () => {
+  test('under 1password, Claude checks the likeliest item itself, alone', () => {
     const rules = toolDescription('1password')
     expect(rules).toContain(
       'check its most likely item name first, as a command of its own',
@@ -354,9 +354,14 @@ describe('the tool description', () => {
       '`op item get "<item>" --vault "<vault>" > /dev/null` (exit 0 means it exists)',
     )
     expect(rules).toContain("Don't list vaults or loop over names")
-    expect(rules).toContain(
-      "If a check is denied, don't ask the user to run it",
-    )
+  })
+
+  test('the rules leave permissions to Claude Code', () => {
+    for (const secrets of ['1password', 'none'] as const) {
+      expect(toolDescription(secrets)).not.toMatch(
+        /auto mode|denied|permission/i,
+      )
+    }
   })
 
   test('the rule against asking for or printing a secret holds with or without op', () => {
