@@ -17,7 +17,6 @@ import {
   refusalText,
   reminderLine,
   sameTitle,
-  secretsMode,
   statusLine,
   toolDescription,
   validateRequest,
@@ -217,9 +216,7 @@ describe('validateRequest', () => {
 
   describe('1Password', () => {
     const NO_EVIDENCE =
-      'Not assigned. Your secrets are in 1Password. Reference the secret as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
-    const NO_REFERENCE =
-      'Not assigned. Your secrets are in 1Password. In `steps`, name the exact reference the user should save the new secret under, as `op://<vault>/<item>/<field>` with the real vault, item and field names, then call mcp__htl__assign_task again.'
+      'Not assigned. The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found. Run the check yourself; don\'t ask the user to.'
 
     test('a secret task that names 1Password and an op:// reference is allowed', () => {
       expect(validateRequest(SECRET, EMPTY)).toBeUndefined()
@@ -237,31 +234,32 @@ describe('validateRequest', () => {
       ).toBe(NO_EVIDENCE)
     })
 
-    test('a secret task whose steps name no op:// reference is refused', () => {
+    test('the user decides where a new secret goes, so steps need no op:// reference', () => {
       expect(
         validateRequest(
           { ...SECRET, steps: 'Create the token and paste it into .env.' },
           EMPTY,
         ),
-      ).toBe(NO_REFERENCE)
-      expect(
-        validateRequest(
-          { ...SECRET, steps: 'Save it in 1Password under op://Private.' },
-          EMPTY,
-        ),
-      ).toBe(NO_REFERENCE)
+      ).toBeUndefined()
     })
 
-    test('the op://<vault>/<item>/<field> placeholder is refused', () => {
+    test('the op://<vault>/<item>/<field> placeholder is refused, with or without op', () => {
+      const PLACEHOLDER =
+        'Not assigned. The steps hold the op://<vault>/<item>/<field> placeholder. Name the real vault, item and field, or leave the op:// suggestion out, then call mcp__htl__assign_task again.'
+      const steps = 'Save it as `op://<vault>/<item>/<field>`.'
+      expect(validateRequest({ ...SECRET, steps }, EMPTY)).toBe(PLACEHOLDER)
+      expect(
+        validateRequest({ ...SECRET, steps }, { ...EMPTY, secrets: 'none' }),
+      ).toBe(PLACEHOLDER)
       expect(
         validateRequest(
-          { ...SECRET, steps: 'Save it as `op://<vault>/<item>/<field>`.' },
+          { ...SECRET, steps: 'Save it as `op://Private/<item>/credential`.' },
           EMPTY,
         ),
-      ).toBe(NO_REFERENCE)
+      ).toBe(PLACEHOLDER)
     })
 
-    test('vault, item and field names may hold spaces', () => {
+    test('real vault, item and field names may hold spaces', () => {
       expect(
         validateRequest(
           {
@@ -339,14 +337,6 @@ describe('/htl arguments', () => {
   })
 })
 
-describe('secretsMode', () => {
-  test('1password stays 1password; anything else counts as none', () => {
-    expect(secretsMode('1password')).toBe('1password')
-    expect(secretsMode('none')).toBe('none')
-    expect(secretsMode(undefined)).toBe('none')
-  })
-})
-
 describe('the tool description', () => {
   test('holds the 1Password rules only under 1password', () => {
     expect(toolDescription('1password')).toContain('op run --env-file=')
@@ -355,16 +345,30 @@ describe('the tool description', () => {
     expect(toolDescription('none')).not.toContain('op://')
   })
 
+  test('the rules leave permissions to Claude Code', () => {
+    for (const secrets of ['1password', 'none'] as const) {
+      expect(toolDescription(secrets)).not.toMatch(
+        /auto mode|denied|permission/i,
+      )
+    }
+  })
+
+  test('the rule against asking for or printing a secret holds with or without op', () => {
+    const rule = 'Never ask the user for a secret value, and never print one.'
+    expect(toolDescription('1password')).toContain(rule)
+    expect(toolDescription('none')).toContain(rule)
+  })
+
   test('both versions fit the 4096 characters the model is sent', () => {
     expect(toolDescription('1password').length).toBeLessThanOrEqual(4096)
     expect(toolDescription('none').length).toBeLessThanOrEqual(4096)
   })
 
-  test('the steps ask for the op:// reference only under 1password', () => {
+  test('the steps suggest an op:// reference only under 1password', () => {
     const stepsOf = (schema: Readonly<Record<string, unknown>>): unknown =>
       JSON.stringify(schema['properties'])
     expect(stepsOf(inputSchema('1password'))).toContain(
-      'the exact 1Password reference to save it under',
+      'may suggest a 1Password reference to save it under',
     )
     expect(stepsOf(inputSchema('none'))).not.toContain('1Password')
   })

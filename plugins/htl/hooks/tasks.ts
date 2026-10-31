@@ -42,7 +42,7 @@ const ENVELOPE: ReadonlySet<string> = new Set([
   'consent',
 ])
 const ONE_PASSWORD_EVIDENCE = /\bop\b|op:\/\/|1password/i
-const OP_REFERENCE = /op:\/\/[^/\n<>]+\/[^/\n<>]+\/[^/\n<>]+/
+const OP_PLACEHOLDER = /op:\/\/\S*</
 
 export type Parsed =
   | { request: HtlRequest; problems?: undefined }
@@ -242,14 +242,14 @@ function refusalOf(
     return repeatRefusal(refused)
   }
 
+  if (request.blocker === 'secret' && OP_PLACEHOLDER.test(request.steps)) {
+    return `The steps hold the op://<vault>/<item>/<field> placeholder. Name the real vault, item and field, or leave the op:// suggestion out, then call ${TOOL} again.`
+  }
   if (session.secrets !== '1password' || request.blocker !== 'secret') {
     return undefined
   }
   if (!ONE_PASSWORD_EVIDENCE.test(request.tried)) {
-    return 'Your secrets are in 1Password. Reference the secret as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found.'
-  }
-  if (!OP_REFERENCE.test(request.steps)) {
-    return `Your secrets are in 1Password. In \`steps\`, name the exact reference the user should save the new secret under, as \`op://<vault>/<item>/<field>\` with the real vault, item and field names, then call ${TOOL} again.`
+    return 'The 1Password CLI is installed, so check 1Password first. If the secret is there, reference it as `op://…` and run the command with `op run` or `op inject`. Assign a task only if the item is missing: check with `op item get "<item>" --vault "<vault>" > /dev/null`, and say in `tried` what you found. Run the check yourself; don\'t ask the user to.'
   }
   return undefined
 }
@@ -270,10 +270,6 @@ export function unreachable(value: never): never {
   throw new Error(`htl: unexpected value ${String(value)}`)
 }
 
-export function secretsMode(value: unknown): SecretsMode {
-  return value === '1password' ? '1password' : 'none'
-}
-
 const GENERAL_RULES = `Assign a job to the user that you truly cannot do yourself: a 2FA, browser or CAPTCHA login, a secret that does not exist yet, a physical action, a payment or a legal signature, or a system your tools cannot reach. The user sees it in a pane with Accept, Reject and "You can do this", and can add a message. Their answer arrives later as a user message.
 
 Rules:
@@ -281,18 +277,18 @@ Rules:
 - Never use it for work your tools can do: edit or create files, run commands, install packages, commit, generate a random secret, or write a placeholder in .env.example.
 - For a question or a choice, use AskUserQuestion. If facts are missing, ask in plain text. Neither is a task.
 - If the user already said they will do it, don't assign it.
+- Never ask the user for a secret value, and never print one.
 - Never feed a password into sudo or a login prompt, even from a password manager. Assign the command to the user as a no_access task.
 - Put related steps in one task, and never assign the same job twice.
 - Pick mode "now" when your next step needs the result, else "parallel".`
 
 const ONE_PASSWORD_RULES = `
 
-Secrets live in 1Password:
-- Never ask the user for a secret value, and never print one.
-- Use a secret through an op://<vault>/<item>/<field> reference: run the command with \`op run --env-file=<file> -- <cmd>\`, or render a config with \`op inject -i <template> -o <file>\`. A resolved file must be gitignored and deleted when you are done.
+The 1Password CLI (op) is installed:
+- Use a secret that is in 1Password through an op://<vault>/<item>/<field> reference: run the command with \`op run --env-file=<file> -- <cmd>\`, or render a config with \`op inject -i <template> -o <file>\`. A resolved file must be gitignored and deleted when you are done. For a secret the user keeps somewhere else, use it from there.
 - Never let a value reach your output: don't run \`op read\`, \`--reveal\` or \`--no-masking\` in your own shell. To check that an item exists, discard the output: \`op item get "<item>" --vault "<vault>" > /dev/null\`.
-- A 1Password Touch ID or unlock prompt is not a task: the user answers it. If \`op\` fails because 1Password is locked, not signed in, or its CLI integration is off, that is not a task either: finish the wiring and say so in one line.
-- A "secret" task is only for a secret that is missing from 1Password: "tried" says what you checked in 1Password, and the steps name the exact op:// reference to save it under, with the real vault, item and field names: the one you will use next.`
+- A 1Password Touch ID or unlock prompt is not a task: the user answers it. If \`op\` fails because 1Password is locked, not signed in, or its CLI integration is off, that is not a task either: say so in one line and ask whether to use 1Password or where else they keep the secret.
+- A "secret" task is only for a secret you could not find in 1Password: "tried" says what you checked in 1Password. The steps may suggest an op://<vault>/<item>/<field> reference to save it under, with real names; the user decides where it goes.`
 
 export function toolDescription(secrets: SecretsMode): string {
   switch (secrets) {
@@ -308,7 +304,7 @@ export function toolDescription(secrets: SecretsMode): string {
 const STEPS =
   'Exact Markdown steps for the user. A shell command they should run gets a ! prefix, so they can paste it into Claude Code: `! gh auth login`.'
 const STEPS_FOR_SECRETS =
-  ' For a secret task, the steps name the exact 1Password reference to save it under: `op://<vault>/<item>/<field>`, with the real vault, item and field names.'
+  ' For a secret task, the steps may suggest a 1Password reference to save it under, `op://<vault>/<item>/<field>` with real names; the user decides where it goes.'
 
 export function inputSchema(
   secrets: SecretsMode,
