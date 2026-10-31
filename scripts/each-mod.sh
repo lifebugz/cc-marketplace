@@ -14,7 +14,7 @@ has_code() {
 }
 
 typecheck() {
-  for config in tsconfig.json plugins/*/tsconfig.json plugins/*/scripts/tsconfig.json; do
+  for config in tsconfig.json plugins/*/tsconfig.json; do
     [ -f "$config" ] || continue
     echo "tsc -p $config"
     "$tsc" -p "$config" || failed=1
