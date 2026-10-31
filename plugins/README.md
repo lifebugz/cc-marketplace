@@ -44,14 +44,14 @@ bun run check
 
 `bun run check` runs these in order, and must pass with zero warnings:
 
-| Script         | What it runs                                                                      |
-| :------------- | :-------------------------------------------------------------------------------- |
-| `types:check`  | Fails when `.claude-types/` is older than the installed Claude Code               |
-| `typecheck`    | TypeScript 7 on each `plugins/*/tsconfig.json`, `plugins/*/scripts/tsconfig.json` |
-| `lint`         | ESLint with type information, one process per plugin, all at once                 |
-| `format:check` | Prettier over the whole repository                                                |
-| `test`         | `claude plugin test` for each mod                                                 |
-| `validate`     | `claude plugin validate --strict` for each plugin and for the marketplace         |
+| Script         | What it runs                                                                |
+| :------------- | :-------------------------------------------------------------------------- |
+| `types:check`  | Fails when `.claude-types/` is older than the installed Claude Code         |
+| `typecheck`    | TypeScript 7 on the root `tsconfig.json` and each `plugins/*/tsconfig.json` |
+| `lint`         | ESLint with type information, one process per plugin, all at once           |
+| `format:check` | Prettier over the whole repository                                          |
+| `test`         | `claude plugin test` for each mod                                           |
+| `validate`     | `claude plugin validate --strict` for each plugin and for the marketplace   |
 
 `bun run lint plugins/<mod>` lints one mod. The first full lint of a mod can
 take minutes: `no-misused-promises` and `strict-void-return` check each
@@ -72,11 +72,6 @@ A mod's `tsconfig.json` is one line:
 ```json
 { "extends": "../../tsconfig.mod.json" }
 ```
-
-A JavaScript for Automation script (JXA, run by `osascript -l JavaScript`) goes
-in `plugins/<mod>/scripts/` beside a `tsconfig.json` that extends
-`../../../tsconfig.jxa.json`, and sets its entry point as
-`globalThis.run = function (argv) { … }`.
 
 The mod API types are in `.claude-types/`, copied from the ones Claude Code
 writes beside a mod in `.claude-plugin/types/`. After a Claude Code update, load
