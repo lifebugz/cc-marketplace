@@ -672,6 +672,42 @@ declare module 'claude-code' {
       /** Ask a session ON THIS MACHINE to send you ONE notice when it next goes idle (finishes its turn with nothing queued) or exits — opt-in, one-shot, no polling. With a message: deliver it now AND subscribe. Without a message (omit it): a pure subscription that costs the other session nothing. */
       notify_when_idle?: boolean
     }
+    SendToProject: {
+      /** Name for the new project — normally the repository or folder name the skill reported. Kept to one line of at most 46 characters. */
+      project_name: string
+      /** Only when /send-to-project named an existing Claude Project to send to: its id as the command gave it, unchanged. Omit to create a new project. */
+      project_id?: string
+      /** Add this folder’s GitHub origin as the project’s repository. The tool reads the remote from git itself; pass false when the folder has no GitHub origin or the user said not to add it. */
+      attach_git_remote: boolean
+      /** Where this tool’s description says it sends one message: summary alone, which is the message. Otherwise the brief you drafted of the work to carry on, in the propose_project_setup shape: summary (2–3 plain sentences, no markdown: what the work is, where it stands and what is left; it is also saved in project memory), sessions (≤4 threads for work left unfinished: title, self-contained prompt, one-line description, basis, who ∈ claude|you, produces ∈ pr|doc|decision), routines (≤3, only when asked for or when a check was run by hand on more than one day: name, 5-field UTC cron at most hourly, prompt, description), and, for a new project only (never with project_id), instructions (standing rules that recurred, as a few short bullet lines; never a description of the project or the work), icon (one of Projects, Folder, Code, Database, HandHeart, Beaker, Wrench, Activity, Chart, Team, Users, Book, Box, Note, File, Lightbulb, Palette, Star, Flag, Home, Sun, Clock, Calendar, Scroll, …) and color. Leave name out: project_name names a new project and an existing one keeps its own. evidence.sessions_matched = how many of the quoted sessions the brief draws on (the tool fills the other counts). Every field is optional; send only what the work supports. Shown to the user on the confirmation pane, or on Claude Desktop’s permission card. After their Yes on the pane, or a click on Desktop’s card that Desktop attests, the brief is posted as the project’s setup card as given (a new project’s icon, color and instructions are set on the project at create instead of going on the setup card). After any other allow (another host application, a hook, or a Desktop build that does not attest clicks), everything goes on the setup card for the user to confirm. No thread starts on approval in either case: the setup card lists them and the user starts each one there. */
+      proposal: {
+        name?: string
+        icon?: "Projects" | "Folder" | "Code" | "Database" | "HandHeart" | "Beaker" | "Wrench" | "Activity" | "Chart" | "Team" | "Users" | "Book" | "Box" | "Note" | "File" | "Lightbulb" | "Palette" | "Star" | "Flag" | "Home" | "Sun" | "Clock" | "Calendar" | "Scroll" | "Moon" | "MoonStars" | "SunHorizon" | "Owl" | "Atom" | "DNA" | "Orbit" | "Globe" | "Cloud" | "Hammer" | "Key" | "Lock" | "Camera" | "Microphone" | "CoffeeCup" | "Gift" | "Ghost" | "GraduationCap" | "Library" | "Spreadsheet" | "Slides" | "Checklist" | "Clipboard" | "Image" | "Bookmark" | "Bank" | "Signpost" | "MapPin" | "Mailbox" | "Heart" | "Lightning" | "Shapes" | "Goal" | "Scale" | "Eye" | "Binoculars" | "Bullhorn" | "PaperPlane" | "ChartLine" | "Timer"
+        color?: "red" | "orange" | "green" | "aqua" | "blue" | "violet" | "magenta"
+        summary?: string
+        instructions?: string
+        routines?: {
+          name: string
+          cron_expression: string
+          prompt: string
+          description?: string
+        }[]
+        sessions?: Array<{
+          title: string
+          prompt: string
+          description: string
+          basis: string
+          who: "claude" | "you"
+          produces: "pr" | "doc" | "decision"
+        }>
+        evidence?: {
+          sessions_matched?: number
+          sessions_considered?: number
+          window_days?: number
+        }
+      }
+    }
+    SendToProjectContext: {}
     SendUserFile: {
       /** File paths (absolute or relative to cwd) to send to the user. Always pass an array, even for a single file. */
       files: string[]
@@ -1025,6 +1061,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -1130,6 +1167,7 @@ declare module 'claude-code' {
         rel?: "mine" | "shared"
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
         pinned?: boolean
       }>
       truncated?: boolean
@@ -1212,6 +1250,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -1267,6 +1306,7 @@ declare module 'claude-code' {
             created_at?: string
             rel?: string
             audience?: string
+            outsiders_may_have_written?: true
             default?: string
           }[]
           more?: boolean
@@ -1894,6 +1934,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -1999,6 +2040,7 @@ declare module 'claude-code' {
         rel?: "mine" | "shared"
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
         pinned?: boolean
       }>
       truncated?: boolean
@@ -2081,6 +2123,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -2136,6 +2179,7 @@ declare module 'claude-code' {
             created_at?: string
             rel?: string
             audience?: string
+            outsiders_may_have_written?: true
             default?: string
           }[]
           more?: boolean
@@ -2763,6 +2807,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -2868,6 +2913,7 @@ declare module 'claude-code' {
         rel?: "mine" | "shared"
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
         pinned?: boolean
       }>
       truncated?: boolean
@@ -2950,6 +2996,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -3005,6 +3052,7 @@ declare module 'claude-code' {
             created_at?: string
             rel?: string
             audience?: string
+            outsiders_may_have_written?: true
             default?: string
           }[]
           more?: boolean
@@ -3632,6 +3680,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -3737,6 +3786,7 @@ declare module 'claude-code' {
         rel?: "mine" | "shared"
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
         pinned?: boolean
       }>
       truncated?: boolean
@@ -3819,6 +3869,7 @@ declare module 'claude-code' {
           created_at?: string
           rel?: string
           audience?: string
+          outsiders_may_have_written?: true
           default?: string
         }[]
         more?: boolean
@@ -3874,6 +3925,7 @@ declare module 'claude-code' {
             created_at?: string
             rel?: string
             audience?: string
+            outsiders_may_have_written?: true
             default?: string
           }[]
           more?: boolean
@@ -4509,6 +4561,8 @@ declare module 'claude-code' {
       backgroundCwdHint?: string
       /** True when this backgrounded command is terminated at its caller's final response, so no completion notification can follow (a synchronous subagent's command, or a headless session that takes no further input and is not waiting for background commands); absent when the command survives */
       backgroundEndsWithFinalResponse?: true
+      /** True when the subagent that owns this backgrounded command parks for its end and is woken by it */
+      backgroundWakesOwner?: true
       /** Flag to indicate if sandbox mode was overridden */
       dangerouslyDisableSandbox?: boolean
       /** Semantic interpretation for non-error exit codes with special meaning */
@@ -4689,6 +4743,8 @@ declare module 'claude-code' {
       }
       /** True when the edit was held for the machine owner to review instead of written; the file is unchanged */
       staged?: boolean
+      /** @internal Which message a staged result gave (see stagedResultWording); absent unless staged */
+      stagedWording?: "review" | "card" | "cloud" | "linked" | "policy"
     }
     "enable__mcp__claude-in-chrome": {
       message: string
@@ -5307,6 +5363,33 @@ declare module 'claude-code' {
       }[]
     }
     SendMessage: unknown
+    SendToProject: {
+      /** Whether the call went through: a project was created (mode 'new') or the existing project was reached (mode 'existing'; savedToMemory and handedOff say what landed there). False means nothing was created or sent; see reason and mayExist. */
+      created: boolean
+      reason?: string
+      mayExist?: boolean
+      projectId?: string
+      projectName?: string
+      projectUrl?: string
+      attachedRepo?: string | null
+      appInstallPending?: boolean
+      mode?: "new" | "existing"
+      savedToMemory?: boolean
+      memoryOmitted?: boolean
+      handedOff?: boolean
+      setupSubmitted?: boolean
+      setupUncertain?: boolean
+      threadsOnCard?: number
+      message?: "sent" | "uncertain" | "not_sent" | null
+      openedInBrowser?: boolean
+      browserOpenPending?: boolean
+      notes?: string[]
+    }
+    SendToProjectContext: {
+      /** delivered: context holds what the command read. already_delivered: an earlier call in this run returned it. nothing_read: the run sends one message and read no context. no_run: no /send-to-project run of the user’s waits in this turn. */
+      status: "delivered" | "already_delivered" | "nothing_read" | "no_run"
+      context?: string
+    }
     SendUserFile: {
       caption?: string
       display?: "render" | "attach"
@@ -5599,6 +5682,8 @@ declare module 'claude-code' {
       userModified?: boolean
       /** True when the write was held for the machine owner to review instead of written; the file is unchanged */
       staged?: boolean
+      /** @internal Which message a staged result gave (see stagedResultWording); absent unless staged */
+      stagedWording?: "review" | "card" | "cloud" | "linked" | "policy"
     }
   }
 }

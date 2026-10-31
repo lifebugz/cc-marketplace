@@ -16,8 +16,6 @@ declare module 'claude-code' {
     typofix: {
       issues: TypoIssue[]
       isHidden: boolean
-      hasDraft: boolean
-      isChecked: boolean
       isOffering: boolean
       rephrase: Rephrase
     }
