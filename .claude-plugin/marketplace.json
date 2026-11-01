@@ -14,8 +14,18 @@
     },
     {
       "name": "typofix",
-      "source": "./plugins/typofix",
-      "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask."
+      "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask.",
+      "author": {
+        "name": "lifebugz"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/lifebugz/typofix.git",
+        "path": "harnesses/claude-code",
+        "sha": "b708a08f9403101489054e1a5f2f490e20b96708"
+      },
+      "homepage": "https://github.com/lifebugz/typofix"
     },
     {
       "name": "mermaid",
