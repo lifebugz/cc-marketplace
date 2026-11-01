@@ -43,8 +43,18 @@
     },
     {
       "name": "htl",
-      "source": "./plugins/htl",
-      "description": "Human in the loop: Claude hands you a job it truly cannot do (a 2FA login, a missing secret, a physical step, a payment), you answer in a pane, and Claude carries on."
+      "description": "Human in the loop: Claude hands you a job it truly cannot do (a 2FA login, a missing secret, a physical step, a payment), you answer in a pane, and Claude carries on.",
+      "author": {
+        "name": "lifebugz"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/lifebugz/htl.git",
+        "path": "harnesses/claude-code",
+        "sha": "04799bb3b731cf814c6eb554a92ee02613448c36"
+      },
+      "homepage": "https://github.com/lifebugz/htl"
     }
   ]
 }

@@ -1,9 +1,0 @@
-{
-  "name": "htl",
-  "version": "0.2.0",
-  "description": "Human in the loop: Claude hands you a job it truly cannot do (a 2FA login, a missing secret, a physical step, a payment), you answer in a pane, and Claude carries on.",
-  "author": {
-    "name": "lifebugz"
-  },
-  "types": "./types/index.d.ts"
-}
