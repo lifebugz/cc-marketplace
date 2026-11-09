@@ -5,6 +5,7 @@ import {
   MAX_TITLE,
   digestOf,
   plainText,
+  reasonOf,
   titleOf,
   titleRequest,
 } from '../hooks/title'
@@ -53,6 +54,23 @@ describe('titleOf', () => {
   test('is empty when nothing is left', () => {
     expect(titleOf('   ')).toBe('')
     expect(titleOf('"".')).toBe('')
+  })
+})
+
+describe('reasonOf', () => {
+  test("drops the engine's plugin and call prefix", () => {
+    expect(
+      reasonOf(
+        new Error(
+          'smart-rename: $.model.complete: model "haiku" is not in this organization\'s allowlist',
+        ),
+      ),
+    ).toBe('model "haiku" is not in this organization\'s allowlist')
+  })
+
+  test('keeps any other text as it is', () => {
+    expect(reasonOf(new Error('network down'))).toBe('network down')
+    expect(reasonOf('plain text')).toBe('plain text')
   })
 })
 

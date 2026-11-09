@@ -195,8 +195,9 @@ describe('/rename falls back to the built-in', () => {
     await $.command.run(BARE)
 
     expect(world.renamed).toEqual([''])
-    expect(world.toasts).toHaveLength(1)
-    expect(world.toasts[0]).toMatch(/^Haiku could not run \(.*blocked.*\)/)
+    expect(world.toasts).toEqual([
+      'Haiku could not run (the haiku model is blocked), so /rename ran without it',
+    ])
     expect(world.statuses.at(-1)).toBeUndefined()
   })
 

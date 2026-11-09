@@ -1,3 +1,13 @@
+/**
+ * Why a call on `$` was refused, from the error it rejected with: the text
+ * after the `<plugin>: $.<op>: ` that Claude Code puts before the reason.
+ */
+export function reasonOf(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error)
+  const reason = text.replace(/^(?:[\w@.-]+: )?\$\.[\w.]+: /, '').trim()
+  return reason === '' ? text : reason
+}
+
 /** The longest title the mod hands to /rename. */
 export const MAX_TITLE = 60
 

@@ -28,10 +28,16 @@ access feature of Claude Code.
 
 While Haiku works (usually 1 to 2 seconds) the status line says
 `Haiku is naming this session…`. The built-in `/rename` then saves the name
-as it always does, so it is the name `/resume` lists.
+as it always does: it is the name on the prompt bar and in the `/resume` list,
+and the command's line in the transcript shows it, as `/rename <title>`.
 
-If Haiku fails or is not allowed, a toast says why and the built-in `/rename`
-runs as it would without the mod.
+If Haiku fails or is not allowed, a toast says why (for example
+`Haiku failed (model_not_found), so /rename ran without it`) and the built-in
+`/rename` runs as it would without the mod. A `/rename` typed while Claude is
+replying waits for the reply to end, as usual, and is then named by Haiku.
+
+On a long session the title follows the work of its latest part: Haiku reads
+your first prompt and the newest messages that fit.
 
 ## How it works
 

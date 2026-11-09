@@ -4,7 +4,7 @@ import type {
   Register,
 } from 'claude-code'
 
-import { digestOf, titleOf, titleRequest } from './title'
+import { digestOf, reasonOf, titleOf, titleRequest } from './title'
 
 const MODEL = 'haiku'
 const MAX_TOKENS = 100
@@ -46,7 +46,7 @@ async function askHaiku(
       { signal },
     )
   } catch (error) {
-    return { failure: `Haiku could not run (${String(error)})` }
+    return { failure: `Haiku could not run (${reasonOf(error)})` }
   } finally {
     $.ui.status(undefined)
   }
