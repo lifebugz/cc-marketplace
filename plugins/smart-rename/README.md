@@ -1,10 +1,10 @@
-# haiku-rename
+# smart-rename
 
 A Claude Code mod that gives `/rename` good names. Run `/rename` with no name
 and Haiku reads the whole conversation and names the session after the work
 in it. `/rename <name>` still sets exactly the name you type.
 
-| Session                                     | Built-in `/rename`            | haiku-rename                                      |
+| Session                                     | Built-in `/rename`            | smart-rename                                      |
 | :------------------------------------------ | :---------------------------- | :------------------------------------------------ |
 | A question about this repo's plugins and CI | `explain-marketplace-plugins` | `Explain marketplace plugins and mod checks`      |
 | The session that built this mod             | `haiku-rename-mod-testing`    | `Build Haiku-powered /rename mod for Claude Code` |
@@ -13,7 +13,7 @@ in it. `/rename <name>` still sets exactly the name you type.
 
 ```shell
 /plugin marketplace add lifebugz/cc-marketplace
-/plugin install haiku-rename@lifebugz
+/plugin install smart-rename@lifebugz
 ```
 
 Tested on Claude Code 2.1.319. Mods (plugins with a hooks module) are an early
@@ -56,9 +56,9 @@ From the repository root:
 
 ```shell
 bun install
-bun run lint plugins/haiku-rename
-claude plugin test plugins/haiku-rename
-claude plugin validate --strict plugins/haiku-rename
+bun run lint plugins/smart-rename
+claude plugin test plugins/smart-rename
+claude plugin validate --strict plugins/smart-rename
 ```
 
 The digest and the title clean-up are in `hooks/title.ts`. The hook is in

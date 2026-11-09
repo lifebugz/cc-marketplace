@@ -51,7 +51,7 @@ async function askHaiku(
     $.ui.status(undefined)
   }
   $.ui.log(
-    `haiku-rename: ${String(reply.usage.input_tokens)} tokens in, ${String(reply.usage.output_tokens)} out`,
+    `smart-rename: ${String(reply.usage.input_tokens)} tokens in, ${String(reply.usage.output_tokens)} out`,
     { to: 'debug' },
   )
   const title = reply.isAnswered ? titleOf(reply.text) : ''
