@@ -13,6 +13,15 @@
       "description": "Git workflow skills - ship (commit + push + PR) and merge (merge the PR + clean up)."
     },
     {
+      "name": "haiku-rename",
+      "description": "Makes a bare /rename ask Haiku for a short, specific session title built from the whole conversation; /rename <name> still sets the name you type.",
+      "author": {
+        "name": "lifebugz"
+      },
+      "category": "productivity",
+      "source": "./plugins/haiku-rename"
+    },
+    {
       "name": "typofix",
       "description": "Checks the spelling and grammar of your prompt as you type, with 3 fixes for each mistake, and rewrites the whole draft with Haiku when you ask.",
       "author": {

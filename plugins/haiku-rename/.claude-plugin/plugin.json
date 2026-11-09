@@ -1,0 +1,8 @@
+{
+  "name": "haiku-rename",
+  "version": "0.1.0",
+  "description": "Makes a bare /rename ask Haiku for a short, specific session title built from the whole conversation; /rename <name> still sets the name you type.",
+  "author": {
+    "name": "lifebugz"
+  }
+}
