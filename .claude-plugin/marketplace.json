@@ -23,7 +23,7 @@
         "source": "git-subdir",
         "url": "https://github.com/lifebugz/typofix.git",
         "path": "harnesses/claude-code",
-        "sha": "b708a08f9403101489054e1a5f2f490e20b96708"
+        "sha": "524bb63e7d4a2af7e411cc1912f7c17a9c728be3"
       },
       "homepage": "https://github.com/lifebugz/typofix"
     },
