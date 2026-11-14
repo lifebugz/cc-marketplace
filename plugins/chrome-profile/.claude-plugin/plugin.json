@@ -1,0 +1,17 @@
+{
+  "name": "chrome-profile",
+  "version": "0.1.0",
+  "description": "Shows Claude and you which Chrome profile, Google account and computer each Claude in Chrome browser is, and lets you choose by them.",
+  "author": {
+    "name": "lifebugz"
+  },
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "label: never ask. ask: ask once per project for a default profile. preferred: ask which profiles Claude should use; never refuses any.",
+      "options": ["label", "ask", "preferred"],
+      "default": "label"
+    }
+  }
+}
