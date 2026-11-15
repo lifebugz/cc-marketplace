@@ -5,6 +5,7 @@
   "author": {
     "name": "lifebugz"
   },
+  "types": "./types/index.d.ts",
   "userConfig": {
     "mode": {
       "type": "string",

@@ -67,7 +67,7 @@ describe('the browser list Claude reads', () => {
   })
 
   test('the device cache is saved, with no password data', async ($, on) => {
-    const store = chrome(on)
+    const { store } = chrome(on)
 
     await $.tool.call({ tool: LIST_TOOL })
     const devices = store.get('devices')

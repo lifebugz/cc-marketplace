@@ -21,6 +21,7 @@ export interface Description {
 }
 
 const DEVICE_MENTION = /"([^"]*)" \(deviceId ([0-9a-fA-F-]+)\)/g
+const SELECTED = /^Selected browser ".*"\.$/s
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -74,6 +75,22 @@ export function parseList(result: unknown): ParsedList | undefined {
     }
   }
   return undefined
+}
+
+/** The list as the next one would show it after `select_browser` picked `deviceId`: that browser alone in use. */
+export function withSelected(parsed: ParsedList, deviceId: string): ParsedList {
+  return {
+    ...parsed,
+    browsers: parsed.browsers.map(listed => {
+      const entry = Object.fromEntries(
+        Object.entries(listed.entry).filter(([key]) => key !== 'inUse'),
+      )
+      return {
+        ...listed,
+        entry: listed.deviceId === deviceId ? { ...entry, inUse: true } : entry,
+      }
+    }),
+  }
 }
 
 export function toBrowser(listed: Listed, position: number): Browser {
@@ -131,6 +148,43 @@ export function rewriteList(
     })
     return { ...block, text: JSON.stringify(entries) }
   })
+}
+
+/** `select_browser`'s `Selected browser "<name>".` with the label as the name; undefined when no block says that. */
+export function relabelSelected(
+  result: unknown,
+  label: string,
+): unknown[] | undefined {
+  if (!Array.isArray(result)) {
+    return undefined
+  }
+  const blocks: readonly unknown[] = result
+  const at = blocks.findIndex(block => SELECTED.test(textOfBlock(block) ?? ''))
+  const block = blocks[at]
+  return isRecord(block)
+    ? blocks.with(at, { ...block, text: `Selected browser "${label}".` })
+    : undefined
+}
+
+/** One browser in the line Claude reads beside a prompt. */
+export interface LineEntry {
+  readonly label: string
+  readonly isInUse: boolean
+  /** Accounts in the profile beyond the one its label shows. */
+  readonly also: readonly string[]
+}
+
+/** `Connected Chrome profiles: …`, or undefined with fewer than 2 browsers, when there is nothing to choose. */
+export function profileLine(entries: readonly LineEntry[]): string | undefined {
+  if (entries.length < 2) {
+    return undefined
+  }
+  const items = entries.map(entry => {
+    const also =
+      entry.also.length === 0 ? '' : ` (also: ${entry.also.join(', ')})`
+    return `${entry.label}${also}${entry.isInUse ? ' [in use]' : ''}`
+  })
+  return `Connected Chrome profiles: ${items.join(', ')}. Switch with select_browser.`
 }
 
 /** The text blocks joined by new lines, the way the tool's own `text` field holds them. */

@@ -3,7 +3,15 @@ import type { EngineInterface, FsEntry, Register } from 'claude-code'
 import type { ProfileCommand } from './command'
 import { USAGE, chooser, parseCommand, pickedIndex } from './command'
 import type { Description, Listed, ParsedList } from './context'
-import { joinedText, parseList, rewriteList, toBrowser } from './context'
+import {
+  joinedText,
+  parseList,
+  profileLine,
+  relabelSelected,
+  rewriteList,
+  toBrowser,
+  withSelected,
+} from './context'
 import type { Entry } from './leveldb'
 import { bytesFromBase64, newestValue, readLog, readTable } from './leveldb'
 import type { Browser, Known, ProfileFacts, Sighting } from './profiles'
@@ -13,12 +21,16 @@ import {
   matchDevices,
   mergeProfile,
   newestVersion,
+  otherEmails,
   parseAccounts,
   parseDeviceCache,
   parseLocalState,
   parseNames,
 } from './profiles'
 
+const CHROME_TOOL = /^mcp__claude-in-chrome__/
+const LIST_TOOL = 'mcp__claude-in-chrome__list_connected_browsers'
+const SELECT_TOOL = 'mcp__claude-in-chrome__select_browser'
 const EXTENSION_ID = 'fcoeoabgfenejglbffodgkkbkcdhcgfn'
 const CHROME_DATA = 'Library/Application Support/Google/Chrome'
 const BROWSER = 'Google Chrome'
@@ -26,6 +38,8 @@ const BROWSER = 'Google Chrome'
 const READ_LIMIT = 4194304
 const PROFILE_FOLDER = /^(Default|Profile \d+)$/
 const LEVELDB_FILE = /\.(ldb|log)$/
+const LINE_LIMIT_MS = 1000
+const TIMED_OUT = Symbol('timed out')
 
 interface Resolved {
   readonly profiles: ReadonlyMap<string, ProfileFacts>
@@ -49,6 +63,8 @@ interface FolderRead {
 
 let resolved: Resolved | undefined
 const resolvedIds = new Set<string>()
+// Desktop's auto mode refuses the mod's own list call, so the last list Claude itself got stands in.
+let lastSeen: ParsedList | undefined
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -343,11 +359,107 @@ async function listBrowsers(
       'claude-in-chrome',
       'list_connected_browsers',
     )
-    return result.isError ? undefined : parseList(result.content)
+    const parsed = result.isError ? undefined : parseList(result.content)
+    if (parsed !== undefined) {
+      lastSeen = parsed
+      return parsed
+    }
   } catch (error) {
     logError($, 'could not list the browsers', error)
+  }
+  if (lastSeen !== undefined) {
+    log($, 'using the last list Claude got instead')
+  }
+  return lastSeen
+}
+
+async function listDescribed(
+  $: EngineInterface,
+): Promise<readonly Described[] | undefined> {
+  const parsed = await listBrowsers($)
+  return parsed === undefined ? undefined : describeAll($, parsed)
+}
+
+async function markChosen($: EngineInterface): Promise<void> {
+  try {
+    await $.state.set({ plugin: 'chrome-profile', key: 'chosen' }, true)
+  } catch (error) {
+    logError($, 'could not mark the session chosen', error)
+  }
+}
+
+/** True for the one call that marks the browser as used in this session. */
+async function markUsed($: EngineInterface): Promise<boolean> {
+  try {
+    const held = await $.state.get({
+      plugin: 'chrome-profile',
+      key: 'browserUsed',
+    })
+    if (held.value === true) {
+      return false
+    }
+    const written = await $.state.set(
+      { plugin: 'chrome-profile', key: 'browserUsed' },
+      true,
+      { ifVersion: held.version },
+    )
+    return written.isSet
+  } catch (error) {
+    logError($, 'could not mark the browser as used', error)
+    return false
+  }
+}
+
+function lineOf(
+  described: readonly Described[] | undefined,
+): string | undefined {
+  return described === undefined
+    ? undefined
+    : profileLine(
+        described.map(item => ({
+          label: item.label,
+          isInUse: item.browser.inUse === true,
+          also: otherEmails(item.known.profile),
+        })),
+      )
+}
+
+async function isBrowserUsed($: EngineInterface): Promise<boolean> {
+  try {
+    const held = await $.state.get({
+      plugin: 'chrome-profile',
+      key: 'browserUsed',
+    })
+    return held.value === true
+  } catch (error) {
+    logError($, 'could not read whether the browser was used', error)
+    return false
+  }
+}
+
+/** The profile line, or undefined when listing the browsers fails or takes `LINE_LIMIT_MS` or more. */
+async function lineWithinLimit(
+  $: EngineInterface,
+): Promise<string | undefined> {
+  const line = listDescribed($).then(lineOf, (error: unknown) => {
+    logError($, 'no profile line for this prompt', error)
+    return undefined
+  })
+  const stop = new AbortController()
+  const late = $.clock.sleep(LINE_LIMIT_MS, { signal: stop.signal }).then(
+    (): typeof TIMED_OUT => TIMED_OUT,
+    async () => line,
+  )
+  const first = await Promise.race([line, late])
+  stop.abort()
+  if (first === TIMED_OUT) {
+    log(
+      $,
+      `listing the browsers took ${String(LINE_LIMIT_MS)} ms or more, so this prompt has no profile line`,
+    )
     return undefined
   }
+  return first
 }
 
 async function choose(
@@ -437,30 +549,91 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Not before the first browser call: the first list opens the bridge connection, which takes up to 1.7 s.
+  on('prompt.submit', async ($, e, next) => {
+    if (!(await isBrowserUsed($))) {
+      return next(e)
+    }
+    const line = await lineWithinLimit($)
+    return next(
+      line === undefined ? e : { ...e, context: [...(e.context ?? []), line] },
+    )
+  }).catch(async (_$, e, next) => next(e))
+
   on('command.run', { command: 'chrome-profile' }, async ($, e) => ({
     text: await runCommand($, e.args),
   }))
 
-  on(
-    'tool.call',
-    { tool: 'mcp__claude-in-chrome__list_connected_browsers' },
-    async ($, e, next) => {
-      if (next.origin.plugin !== 'engine') {
-        return next(e)
-      }
-      const result = await next(e)
-      if (result.deny !== undefined || result.isError === true) {
-        return result
-      }
-      const parsed = parseList(result.result)
-      if (parsed === undefined) {
-        return result
-      }
-      const blocks = rewriteList(
-        parsed,
-        descriptionsOf(await describeAll($, parsed)),
-      )
-      return { ...result, result: blocks, text: joinedText(blocks) }
-    },
-  ).catch(async (_$, e, next) => next(e))
+  on('tool.call', { tool: SELECT_TOOL }, async ($, e, next) => {
+    if (next.origin.plugin !== 'engine') {
+      return next(e)
+    }
+    const result = await next(e)
+    if (result.deny !== undefined || result.isError === true) {
+      return result
+    }
+    await markChosen($)
+    const isFirst = await markUsed($)
+    const deviceId = e['deviceId']
+    if (lastSeen !== undefined && typeof deviceId === 'string') {
+      lastSeen = withSelected(lastSeen, deviceId)
+    }
+    const described = await listDescribed($)
+    const picked = described?.find(item => item.listed.deviceId === deviceId)
+    const blocks =
+      picked === undefined
+        ? undefined
+        : relabelSelected(result.result, picked.label)
+    const relabelled =
+      blocks === undefined
+        ? result
+        : { ...result, result: blocks, text: joinedText(blocks) }
+    const line = isFirst ? lineOf(described) : undefined
+    return line === undefined
+      ? relabelled
+      : { ...relabelled, context: [...(result.context ?? []), line] }
+  }).catch(async (_$, e, next) => next(e))
+
+  on('tool.call', { tool: CHROME_TOOL }, async ($, e, next) => {
+    if (
+      next.origin.plugin !== 'engine' ||
+      e.tool === LIST_TOOL ||
+      e.tool === SELECT_TOOL
+    ) {
+      return next(e)
+    }
+    const result = await next(e)
+    if (
+      result.deny !== undefined ||
+      result.isError === true ||
+      !(await markUsed($))
+    ) {
+      return result
+    }
+    const line = lineOf(await listDescribed($))
+    return line === undefined
+      ? result
+      : { ...result, context: [...(result.context ?? []), line] }
+  }).catch(async (_$, e, next) => next(e))
+
+  on('tool.call', { tool: LIST_TOOL }, async ($, e, next) => {
+    if (next.origin.plugin !== 'engine') {
+      return next(e)
+    }
+    const result = await next(e)
+    if (result.deny !== undefined || result.isError === true) {
+      return result
+    }
+    await markUsed($)
+    const parsed = parseList(result.result)
+    if (parsed === undefined) {
+      return result
+    }
+    lastSeen = parsed
+    const blocks = rewriteList(
+      parsed,
+      descriptionsOf(await describeAll($, parsed)),
+    )
+    return { ...result, result: blocks, text: joinedText(blocks) }
+  }).catch(async (_$, e, next) => next(e))
 }

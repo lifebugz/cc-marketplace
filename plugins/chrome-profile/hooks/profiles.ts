@@ -230,6 +230,13 @@ function profilePart(browser: Browser, known: Known): string {
   return web === undefined ? `${name} (no account)` : `${name} (web: ${web})`
 }
 
+/** The emails of the profile's Google accounts that its label does not already show. */
+export function otherEmails(profile: ProfileFacts | undefined): string[] {
+  const accounts = profile?.accounts ?? []
+  const shown = profile?.email ?? accounts[0]?.email
+  return accounts.map(account => account.email).filter(email => email !== shown)
+}
+
 /** Where the browser runs, decided from strong signals only: `isLocal` is never used. */
 export function machineOf(browser: Browser, known: Known): Machine {
   const os = browser.os === undefined ? {} : { os: browser.os }

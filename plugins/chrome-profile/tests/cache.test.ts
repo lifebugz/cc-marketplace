@@ -40,7 +40,7 @@ describe('the device cache', () => {
   })
 
   test('this computer’s name is saved, and used when scutil fails', async ($, on) => {
-    const store = chrome(on)
+    const { store } = chrome(on)
 
     await $.tool.call({ tool: LIST_TOOL })
 
@@ -78,7 +78,7 @@ describe('names you gave', () => {
 
 describe('/chrome-profile name and machine', () => {
   test('one unknown browser is named without a question', async ($, on) => {
-    const store = chrome(on, {
+    const { store } = chrome(on, {
       listAnswer: { result: TWO, text: '' },
       ask: () => 'asked',
     })
@@ -90,7 +90,7 @@ describe('/chrome-profile name and machine', () => {
   })
 
   test('with several unknown browsers, you pick which one', async ($, on) => {
-    const store = chrome(on, {
+    const { store } = chrome(on, {
       ask: labels => labels.find(label => label.startsWith('Browser 2')) ?? '',
     })
 
@@ -103,7 +103,7 @@ describe('/chrome-profile name and machine', () => {
   })
 
   test('an answer that picks no browser names nothing', async ($, on) => {
-    const store = chrome(on, { ask: () => 'something else' })
+    const { store } = chrome(on, { ask: () => 'something else' })
 
     expect(await run($, 'name Laptop')).toBe('Nothing was named.')
     expect(store.has('names')).toBe(false)

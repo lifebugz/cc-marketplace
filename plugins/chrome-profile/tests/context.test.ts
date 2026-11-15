@@ -4,6 +4,7 @@ import type { Description } from '../hooks/context'
 import {
   joinedText,
   parseList,
+  relabelSelected,
   relabelSentence,
   rewriteList,
   toBrowser,
@@ -140,5 +141,29 @@ describe('relabelSentence', () => {
 describe('joinedText', () => {
   test('the text blocks joined by new lines, as the tool sets `text`', () => {
     expect(joinedText(RESULT)).toBe(`${JSON.stringify(LIST)}\n${SENTENCE}`)
+  })
+})
+
+describe('relabelSelected', () => {
+  const LABEL = 'Work (some.one@example.com) · Office Mac'
+
+  test('names the label in the sentence, and keeps the other blocks', () => {
+    const image = { type: 'image', data: 'AAAA' }
+
+    expect(
+      relabelSelected(
+        [image, { type: 'text', text: 'Selected browser "Browser 1".' }],
+        LABEL,
+      ),
+    ).toEqual([image, { type: 'text', text: `Selected browser "${LABEL}".` }])
+  })
+
+  test('a result with no such sentence is not rewritten', () => {
+    expect(
+      relabelSelected([{ type: 'text', text: 'Switched.' }], LABEL),
+    ).toBeUndefined()
+    expect(
+      relabelSelected('Selected browser "Browser 1".', LABEL),
+    ).toBeUndefined()
   })
 })
