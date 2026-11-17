@@ -112,6 +112,8 @@ export interface World {
   readonly contexts: (readonly string[])[]
   /** The tools the mod itself called through `$.mcp.call`, in order. */
   readonly mcpCalls: string[]
+  /** The tool calls that reached the tool itself, beneath the mod, in order. */
+  readonly toolCalls: string[]
   /** The last value the mod wrote under each of its `$.state` keys. */
   readonly states: Map<string, unknown>
   readonly clock: MockClock
@@ -131,6 +133,7 @@ export function chrome(on: On, options: WorldOptions = {}): World {
     store,
     contexts: [],
     mcpCalls: [],
+    toolCalls: [],
     states: new Map(),
     clock: mock.clock(on),
   }
@@ -223,6 +226,7 @@ export function chrome(on: On, options: WorldOptions = {}): World {
       const answer = options.ask?.(labels) ?? labels[0] ?? ''
       return { result: { answers: { [question?.question ?? '']: answer } } }
     }
+    world.toolCalls.push(e.tool)
     if (e.tool === LIST_TOOL) {
       return listAnswer
     }
