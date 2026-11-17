@@ -333,15 +333,16 @@ declare module 'claude-code' {
       }>
     }
     ExitWorktree: {
-      /** "keep" leaves the worktree and branch on disk; "remove" deletes both. */
+      /** "keep" leaves the worktree and branch on disk; "remove" deletes the worktree and, unless a hook made it or git refuses, its branch. */
       action: "keep" | "remove"
-      /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. */
+      /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. It also removes the worktree under any task still running there, so set it only after the user has confirmed. */
       discard_changes?: boolean
     }
     FetchInboxMessage: {
       /** The file_id from the session-inbox notification you received */
       file_id: string
     }
+    GetGoal: {}
     GetTask: {
       /** The taskId from the result that moved the command to the background */
       taskId: string
@@ -433,6 +434,10 @@ declare module 'claude-code' {
       /** A short phrase naming what the task needs the user's own browser for. */
       reason?: string
     }
+    PauseGoal: {
+      /** What blocks you and what you need from the user, who reads this. At most 500 characters. */
+      reason: string
+    }
     Poll: {}
     Projects: {
       method: "project_info" | "project_read" | "project_search" | "project_write" | "project_delete" | "project_memory_list" | "project_memory_read"
@@ -470,12 +475,6 @@ declare module 'claude-code' {
         /** For a new skill or a full rewrite. The complete SKILL.md exactly as it should be saved: frontmatter plus the full body. When the user saves, the body below the frontmatter becomes the skill's entire instructions and the name and description come from the fields above; other frontmatter keys are not kept. For an improvement this replaces the existing skill's SKILL.md entirely, so read that skill's current SKILL.md first and include everything worth keeping, not only the changes. */
         skillMd?: string
       }>
-    }
-    ProposeGoal: {
-      /** The completion condition to propose, written so a separate evaluator can verify it from the conversation (e.g. "all tests in test/auth pass (bun test exits 0)"). At most 500 characters — the user must be able to read the whole condition in the approval dialog. */
-      condition: string
-      /** Whether to ask the user for approval before the goal is set. Defaults to true — an approval dialog is shown. Set false ONLY when the user's own words in this conversation stated this outcome as what they want; the goal is then set directly, with a visible notice in the transcript, and the user can clear it with /goal clear. */
-      ask_user?: boolean
     }
     PublishPlugin: {
       /** The plugin's folder on this machine: the one that holds .claude-plugin/plugin.json, or a mod's hooks/ where there is no manifest yet. */
@@ -735,6 +734,12 @@ declare module 'claude-code' {
       /** The message for the user. Supports markdown formatting. */
       message: string
     }
+    SetGoal: {
+      /** The completion condition to set, written so a separate evaluator can verify it from the conversation (e.g. "all tests in test/auth pass (bun test exits 0)"). At most 500 characters — the user must be able to read the whole condition in the approval dialog. */
+      condition: string
+      /** Whether to ask the user for approval before the goal is set. Defaults to true — an approval dialog is shown. Set false ONLY when the user's own words in this conversation stated this outcome as what they want; the goal is then set directly, with a visible notice in the transcript, and the user can clear it with /goal clear. While a goal is active the dialog is shown whatever this says. */
+      ask_user?: boolean
+    }
     ShareOnboardingGuide: {
       /** 'check' (default): if ONBOARDING.md is present locally, uploads it to the most-recent guide (creates one if none exist); otherwise reports the existing link without uploading. 'update': upload to a specific guide by short_code. 'create': always make a new link. 'delete': remove the guide named by short_code; with no short_code, nothing is deleted and the user's guides are listed. */
       mode: "check" | "update" | "create" | "delete"
@@ -865,7 +870,7 @@ declare module 'claude-code' {
       args?: unknown
       /** Path to a workflow script file on disk. Every Workflow invocation persists its script under the session directory and returns the path in the tool result. To iterate, edit that file with Write/Edit and re-invoke Workflow with the same `scriptPath` instead of re-sending the full script. Takes precedence over `script` and `name`. */
       scriptPath?: string
-      /** Run ID of a prior Workflow invocation to resume from. Completed agent() calls with unchanged (prompt, opts) return their cached results instantly; only edited or new calls re-run. Same-session only. Stop the prior run first (TaskStop) before resuming. */
+      /** Run ID of a prior Workflow invocation to resume from. The cache is positional: agent() calls replay from cache up to the first call that failed, no longer matches the earlier run (edited, added, removed or reordered) or never started in it; that call and every call after it run again, even when their own (prompt, opts) are unchanged. A call a usage limit refused, or one still running when the run stopped, usually runs again without ending reuse: finished calls after it still come from cache. Same-session only. Stop the prior run first (TaskStop) before resuming. */
       resumeFromRunId?: string
     }
     WrapUp: {
@@ -1149,6 +1154,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -2029,6 +2035,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -2909,6 +2916,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -3789,6 +3797,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -4843,6 +4852,8 @@ declare module 'claude-code' {
       worktreePath: string
       worktreeBranch?: string
       message: string
+      /** @internal Told to the model and shown to the person where the sandbox stays on only through this move. */
+      sandboxNote?: string
     }
     ExitPlanMode: {
       /** The plan that was presented to the user */
@@ -4872,6 +4883,8 @@ declare module 'claude-code' {
       /** @internal originalCwd was gone (or a network path the session will not touch), so restoredCwd is a fallback directory. */
       originalCwdMissing?: boolean
       message: string
+      /** @internal Told to the model and shown to the person where the sandbox stays on only through this move. */
+      sandboxNote?: string
     }
     FetchInboxMessage: {
       ok: boolean
@@ -4886,6 +4899,14 @@ declare module 'claude-code' {
       received_at?: string
       attachments_prefix?: string
       reason?: string
+    }
+    GetGoal: {
+      /** The goal condition, or null when no goal is active */
+      condition: string | null
+      /** The evaluator's last reason the goal isn't met */
+      lastReason?: string
+      /** Whether the goal is paused until the user's next message */
+      paused?: boolean
     }
     GetTask: {
       taskId: string
@@ -5078,6 +5099,10 @@ declare module 'claude-code' {
     OfferChromeSetup: {
       outcome: "connected" | "not_now" | "no_attempt_yet"
     }
+    PauseGoal: {
+      /** The goal that was paused */
+      condition: string
+    }
     Poll: {
       /** Rendered event envelopes, or "(no pending events)" */
       content: string
@@ -5206,12 +5231,6 @@ declare module 'claude-code' {
     propose_skills: {
       /** Number of proposals shown on the review card */
       proposalCount: number
-    }
-    ProposeGoal: {
-      /** The condition shown to the user for approval, or set directly when ask_user was false */
-      condition: string
-      /** Whether the user was asked for approval (true) or the goal was set directly (false) */
-      askUser: boolean
     }
     PublishPlugin: {
       state: "published" | "in-review" | "publishing" | "on-shelf" | "refused"
@@ -5550,6 +5569,12 @@ declare module 'claude-code' {
       /** ISO timestamp captured at tool execution on the emitting process. Optional — resumed sessions replay pre-sentAt outputs verbatim. */
       sentAt?: string
       rendered_locally?: boolean
+    }
+    SetGoal: {
+      /** The condition shown to the user for approval, or set directly */
+      condition: string
+      /** Whether the user was asked for approval (true) or the goal was set directly (false) */
+      askUser: boolean
     }
     ShareOnboardingGuide: {
       status: "created" | "updated" | "deleted" | "has_existing" | "unavailable"
