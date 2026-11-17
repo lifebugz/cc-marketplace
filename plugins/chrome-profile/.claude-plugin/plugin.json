@@ -1,0 +1,9 @@
+{
+  "name": "chrome-profile",
+  "version": "0.1.0",
+  "description": "Shows Claude and you which Chrome profile, Google account and computer each Claude in Chrome browser is, so Claude can pick the right one for each task.",
+  "author": {
+    "name": "lifebugz"
+  },
+  "types": "./types/index.d.ts"
+}

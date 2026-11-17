@@ -54,6 +54,11 @@
         "sha": "04799bb3b731cf814c6eb554a92ee02613448c36"
       },
       "homepage": "https://github.com/lifebugz/htl"
+    },
+    {
+      "name": "chrome-profile",
+      "source": "./plugins/chrome-profile",
+      "description": "Shows Claude which Chrome profile, Google account and computer each Claude in Chrome browser is."
     }
   ]
 }
