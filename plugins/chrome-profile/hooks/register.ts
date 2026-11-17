@@ -380,14 +380,6 @@ async function listDescribed(
   return parsed === undefined ? undefined : describeAll($, parsed)
 }
 
-async function markChosen($: EngineInterface): Promise<void> {
-  try {
-    await $.state.set({ plugin: 'chrome-profile', key: 'chosen' }, true)
-  } catch (error) {
-    logError($, 'could not mark the session chosen', error)
-  }
-}
-
 /** True for the one call that marks the browser as used in this session. */
 async function markUsed($: EngineInterface): Promise<boolean> {
   try {
@@ -539,8 +531,8 @@ export const register: Register = on => {
       await $.command.register({
         name: 'chrome-profile',
         description:
-          'Show and choose the Chrome profiles Claude in Chrome uses',
-        argumentHint: '[name <label> | machine <name> | forget]',
+          'Name a Claude in Chrome browser whose profile or computer is unknown',
+        argumentHint: '[name <label> | machine <name>]',
         immediate: true,
       })
     } catch (error) {
@@ -572,7 +564,6 @@ export const register: Register = on => {
     if (result.deny !== undefined || result.isError === true) {
       return result
     }
-    await markChosen($)
     const isFirst = await markUsed($)
     const deviceId = e['deviceId']
     if (lastSeen !== undefined && typeof deviceId === 'string') {

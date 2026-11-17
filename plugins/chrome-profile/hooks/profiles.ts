@@ -264,21 +264,13 @@ export function machineOf(browser: Browser, known: Known): Machine {
 
 /**
  * `<profile> · <computer>`, built from whatever is known. A label never holds
- * `"`, because the terminal quotes a multiple-choice answer that holds a comma.
+ * `"`, because the list's sentence and each switch result quote it.
  */
-export function labelOf(
-  browser: Browser,
-  known: Known,
-  options: { readonly markInUse?: boolean } = {},
-): string {
-  const label =
-    `${profilePart(browser, known)} · ${machineOf(browser, known).name}`.replaceAll(
-      '"',
-      "'",
-    )
-  return options.markInUse === true && browser.inUse === true
-    ? `${label} (in use)`
-    : label
+export function labelOf(browser: Browser, known: Known): string {
+  return `${profilePart(browser, known)} · ${machineOf(browser, known).name}`.replaceAll(
+    '"',
+    "'",
+  )
 }
 
 function compareVersions(

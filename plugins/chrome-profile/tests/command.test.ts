@@ -9,6 +9,6 @@ test('/chrome-profile answers with its usage line', async $ => {
   })
 
   expect(answer.text).toBe(
-    'Usage: /chrome-profile [name <label> | machine <name> | forget]',
+    'Usage: /chrome-profile [name <label> | machine <name>]',
   )
 })

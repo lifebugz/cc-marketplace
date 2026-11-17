@@ -2,7 +2,6 @@ import type { ToolCallResult } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  A,
   B,
   LABELS,
   LIST_TOOL,
@@ -31,21 +30,12 @@ describe('Claude’s own select_browser', () => {
     expect(result.text).toBe(text)
   })
 
-  test('it marks the session chosen', async ($, on) => {
-    const { states } = chrome(on)
-
-    await $.tool.call({ tool: SELECT_TOOL, deviceId: A })
-
-    expect(states.get('chosen')).toBe(true)
-  })
-
-  test('a failed one goes to Claude untouched and chooses nothing', async ($, on) => {
-    const { states } = chrome(on, { selectAnswer: FAILED })
+  test('a failed one goes to Claude untouched', async ($, on) => {
+    chrome(on, { selectAnswer: FAILED })
 
     const result = await $.tool.call({ tool: SELECT_TOOL, deviceId: UNLISTED })
 
     expect(result).toMatchObject({ isError: true, text: NOT_FOUND })
-    expect(states.has('chosen')).toBe(false)
   })
 
   test('a browser the list does not show keeps its result', async ($, on) => {
@@ -57,12 +47,11 @@ describe('Claude’s own select_browser', () => {
   })
 
   test('with no list to read, the result stays as it was', async ($, on) => {
-    const { states } = chrome(on, { failing: ['bridge'] })
+    chrome(on, { failing: ['bridge'] })
 
     const result = await $.tool.call({ tool: SELECT_TOOL, deviceId: B })
 
     expect(result.text).toBe('Selected browser "Browser 2".')
-    expect(states.get('chosen')).toBe(true)
   })
 })
 

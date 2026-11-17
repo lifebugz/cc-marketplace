@@ -3,8 +3,7 @@ export type ProfileCommand =
   | { readonly kind: 'name'; readonly label: string }
   | { readonly kind: 'machine'; readonly name: string }
 
-export const USAGE =
-  'Usage: /chrome-profile [name <label> | machine <name> | forget]'
+export const USAGE = 'Usage: /chrome-profile [name <label> | machine <name>]'
 
 const MAX_NAME = 60
 // $.ui.ask takes at most 4 options.

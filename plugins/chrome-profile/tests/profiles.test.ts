@@ -274,15 +274,10 @@ describe('labelOf: the profile part', () => {
     )
   })
 
-  test('the browser in use is marked when asked', () => {
-    const inUse = browser(1, { inUse: true })
-
+  test('the browser in use has the same label as any other', () => {
     expect(
-      labelOf(inUse, { ...HERE, profile: WORK }, { markInUse: true }),
-    ).toBe('Work (some.one@example.com) · Office Mac (in use)')
-    expect(labelOf(inUse, { ...HERE, profile: WORK })).toBe(
-      'Work (some.one@example.com) · Office Mac',
-    )
+      labelOf(browser(1, { inUse: true }), { ...HERE, profile: WORK }),
+    ).toBe('Work (some.one@example.com) · Office Mac')
   })
 
   test('a label never contains a double quote', () => {
