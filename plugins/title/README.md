@@ -27,7 +27,8 @@ There is nothing to set up: the mod has no settings.
 
 Haiku reads your first request and the newest words of the conversation; tool
 calls and Claude Code's own reminders are left out. Typed while Claude is
-working, `/title` waits for the turn to end.
+working, `/title` runs at once, as `/rename` does, but the rename lands when
+Claude's turn ends: Claude Code holds a `/rename` that a mod starts until then.
 
 The rename itself is the built-in `/rename`, run for you a moment after
 `/title`. So the transcript shows `Session renamed to: <name>`, and Claude

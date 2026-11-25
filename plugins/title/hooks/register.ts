@@ -120,6 +120,9 @@ export const register: Register = on => {
       description:
         'Name this session: Haiku picks a name from the conversation, or give your own',
       argumentHint: '[name]',
+      // Runs mid-turn as the built-in /rename does; the /rename it starts
+      // still waits for the turn to end.
+      immediate: true,
     })
     return next(e)
   })

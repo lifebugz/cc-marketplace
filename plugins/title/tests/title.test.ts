@@ -1,4 +1,4 @@
-import type { ModelCompleteResult, On } from 'claude-code'
+import type { CommandSpec, ModelCompleteResult, On } from 'claude-code'
 import type { MockClock } from 'claude-code/testing'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
@@ -89,6 +89,21 @@ function engine(
   })
   return seen
 }
+
+test('registers /title as immediate, as the built-in /rename is', async ($, on) => {
+  const specs: CommandSpec[] = []
+  on('command.register', (_$, e) => {
+    specs.push(e)
+    return { value: { command: e.name } }
+  })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(specs.map(spec => [spec.name, spec.immediate])).toEqual([
+    ['title', true],
+  ])
+})
 
 describe('/title in a conversation', () => {
   test('Haiku names it, and /rename runs once /title has answered', async ($, on) => {
