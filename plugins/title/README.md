@@ -29,8 +29,10 @@ There is nothing to set up: the mod has no settings.
 /title login work
 ```
 
-Anything after `/title` is a hint for Haiku. A toast in the top right corner
-shows the result:
+Anything after `/title` is a hint for Haiku. Haiku reads your first request
+and the newest words of the conversation (tool calls and Claude Code's own
+reminders are left out). Typed while Claude is working, `/title` waits for the
+turn to end. A toast in the top right corner shows the result:
 
 | What happened                           | The toast                                     |
 | :-------------------------------------- | :-------------------------------------------- |
@@ -53,9 +55,12 @@ its command and output to the conversation, plus a note for Claude
 
 - One small Haiku request per `/title`. It counts toward `/cost` like any
   other request of the session.
-- Renaming a session, by `/title` or by the built-in `/rename`, makes Claude
-  Code write the conversation part of the prompt cache again on the next
-  request. This is Claude Code's behavior, the same with no mods loaded.
+- After a rename, by `/title` or by the built-in `/rename`, the next request
+  sometimes writes the conversation part of the prompt cache again. It
+  happened in short test sessions, also with the built-in `/rename` and no
+  mods loaded, and not in a longer one. The cause is unknown: the recorded
+  request holds the name in none of the system prompt, the tools or the
+  messages.
 
 ## Where Claude Code itself stores the typed line
 

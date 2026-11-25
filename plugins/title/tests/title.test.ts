@@ -99,6 +99,24 @@ describe('/title', () => {
     expect(prompt).toContain("The person's hint for the title: login work")
     expect(prompt).not.toContain('some.one@example.com')
   })
+
+  test('a long run of silent tool calls still names the first request', async ($, on) => {
+    const seen = engine(on, () => NAMED, {
+      said: [CONVERSATION[0] ?? '', ...Array.from({ length: 41 }, () => '')],
+    })
+
+    await $.command.run({
+      command: 'title',
+      args: '',
+      origin: { kind: 'composer' },
+      presentation: PRESENTATION,
+    })
+
+    expect(seen.prompts[0]).toContain('times out after 5 seconds')
+    expect(seen.toasts).toEqual([
+      'Your next prompt names this session: fix-login-timeout',
+    ])
+  })
 })
 
 describe('the name lands on the next prompt', () => {

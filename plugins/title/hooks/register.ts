@@ -8,7 +8,6 @@ import { buildNameRequest, excerptOf, parseName } from './naming'
 
 const TOAST_MS = 8000
 const NAME_TIMEOUT_MS = 15000
-const MESSAGES_READ = 40
 
 // No $ call sets a session's title. A classic UserPromptSubmit hook's
 // sessionTitle is the only route that adds no row for the model, so the name
@@ -36,11 +35,7 @@ function failureOf(reply: ModelCompleteResult): string {
 
 async function askForName($: EngineInterface, hint: string): Promise<string> {
   pendingName = undefined
-  const messages = await $.session.messages({ last: MESSAGES_READ })
-  if ('deny' in messages) {
-    return `Could not read the conversation (${messages.deny})`
-  }
-  const excerpt = excerptOf(messages)
+  const excerpt = excerptOf(await $.session.messages())
   if (excerpt === '') {
     return 'Nothing to name yet: send a prompt first.'
   }

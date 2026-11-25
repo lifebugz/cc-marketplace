@@ -1,6 +1,8 @@
 export const MAX_NAME_LENGTH = 60
 export const MAX_EXCERPT_LENGTH = 6000
 export const MAX_HINT_LENGTH = 200
+export const MAX_OPENING_LENGTH = 2000
+export const GAP = '[…]'
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 // Claude Code wraps CLAUDE.md, memory, the environment and the user's email in
 // these; they say nothing about the task, and the email must not leave.
@@ -17,24 +19,33 @@ export interface NameRequest {
 }
 
 export function excerptOf(messages: readonly SpokenMessage[]): string {
-  const lines: string[] = []
-  let length = 0
-  for (const message of messages.toReversed()) {
+  const lines = messages.flatMap(message => {
     const text = message.text.replace(REMINDER, '').trim()
-    if (text === '') {
-      continue
-    }
-    const line = `${message.role === 'user' ? 'Person' : 'Claude'}: ${text}`
-    if (length + line.length > MAX_EXCERPT_LENGTH) {
-      if (lines.length === 0) {
-        lines.push(line.slice(0, MAX_EXCERPT_LENGTH))
+    return text === ''
+      ? []
+      : [`${message.role === 'user' ? 'Person' : 'Claude'}: ${text}`]
+  })
+  const [first, ...rest] = lines
+  if (first === undefined) {
+    return ''
+  }
+  // The first request usually states the session's task; the newest words
+  // say where it went.
+  const opening = first.slice(0, MAX_OPENING_LENGTH)
+  let room = MAX_EXCERPT_LENGTH - opening.length - GAP.length - 2
+  const newest: string[] = []
+  for (const line of rest.toReversed()) {
+    if (line.length + 1 > room) {
+      if (newest.length === 0) {
+        newest.push(line.slice(0, room - 1))
       }
       break
     }
-    lines.push(line)
-    length += line.length + 1
+    newest.push(line)
+    room -= line.length + 1
   }
-  return lines.toReversed().join('\n')
+  const gap = newest.length < rest.length ? [GAP] : []
+  return [opening, ...gap, ...newest.toReversed()].join('\n')
 }
 
 export function buildNameRequest(excerpt: string, hint: string): NameRequest {

@@ -1,13 +1,16 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  GAP,
   MAX_EXCERPT_LENGTH,
   MAX_HINT_LENGTH,
   MAX_NAME_LENGTH,
+  MAX_OPENING_LENGTH,
   buildNameRequest,
   excerptOf,
   parseName,
 } from '../hooks/naming'
+import type { SpokenMessage } from '../hooks/naming'
 
 describe('the excerpt Haiku reads', () => {
   test('labels who spoke, oldest first, without reminders or empty rows', () => {
@@ -25,23 +28,50 @@ describe('the excerpt Haiku reads', () => {
     )
   })
 
-  test('keeps the newest words when the conversation is long', () => {
-    const old = 'o'.repeat(MAX_EXCERPT_LENGTH)
+  test('keeps the first request and the newest words, and marks the gap', () => {
+    const middle: SpokenMessage[] = Array.from({ length: 40 }, (_, index) => ({
+      role: 'assistant',
+      text: `step ${String(index)} ${'m'.repeat(300)}`,
+    }))
     const excerpt = excerptOf([
-      { role: 'user', text: old },
-      { role: 'user', text: 'the newest request' },
+      { role: 'user', text: 'Move the billing export to CSV' },
+      ...middle,
+      { role: 'user', text: 'Now add a test for it' },
     ])
+    const lines = excerpt.split('\n')
 
-    expect(excerpt).toBe('Person: the newest request')
+    expect(lines[0]).toBe('Person: Move the billing export to CSV')
+    expect(lines[1]).toBe(GAP)
+    expect(lines.at(-1)).toBe('Person: Now add a test for it')
+    expect(excerpt).not.toContain('step 0 ')
+    expect(excerpt.length).toBeLessThanOrEqual(MAX_EXCERPT_LENGTH)
   })
 
-  test('cuts one message longer than the whole budget', () => {
+  test('a turn of silent tool calls still leaves the first request', () => {
+    const silent: SpokenMessage[] = Array.from({ length: 60 }, (_, index) => ({
+      role: index % 2 === 0 ? 'assistant' : 'user',
+      text: '',
+    }))
+
+    expect(
+      excerptOf([
+        { role: 'user', text: 'Fix the flaky login test' },
+        ...silent,
+      ]),
+    ).toBe('Person: Fix the flaky login test')
+  })
+
+  test('cuts a very long first request, and stays within the budget', () => {
     const excerpt = excerptOf([
       { role: 'user', text: 'x'.repeat(MAX_EXCERPT_LENGTH * 2) },
+      { role: 'assistant', text: 'y'.repeat(MAX_EXCERPT_LENGTH * 2) },
     ])
+    const [opening = '', ...rest] = excerpt.split('\n')
 
-    expect(excerpt).toHaveLength(MAX_EXCERPT_LENGTH)
-    expect(excerpt.startsWith('Person: xxx')).toBe(true)
+    expect(opening).toHaveLength(MAX_OPENING_LENGTH)
+    expect(rest).toHaveLength(1)
+    expect(rest[0]?.startsWith('Claude: yyy')).toBe(true)
+    expect(excerpt.length).toBeLessThanOrEqual(MAX_EXCERPT_LENGTH)
   })
 
   test('is empty when only reminders were said', () => {
