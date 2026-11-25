@@ -1,0 +1,8 @@
+{
+  "name": "title",
+  "version": "0.1.0",
+  "description": "Adds /title: Haiku names this session from the conversation, with nothing added to Claude's context.",
+  "author": {
+    "name": "lifebugz"
+  }
+}
