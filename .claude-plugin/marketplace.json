@@ -63,7 +63,7 @@
     {
       "name": "title",
       "source": "./plugins/title",
-      "description": "Adds /title: Haiku names the session from the conversation so far, and nothing is added to Claude's context.",
+      "description": "Adds /title: Haiku names the session from the conversation, or you type a name, and the session is renamed at once. Costs no context until you use it.",
       "author": {
         "name": "lifebugz"
       },

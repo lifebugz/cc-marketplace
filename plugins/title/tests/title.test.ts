@@ -1,5 +1,6 @@
 import type { ModelCompleteResult, On } from 'claude-code'
-import { describe, expect, test } from 'claude-code/testing'
+import type { MockClock } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 
 const USAGE = {
   input_tokens: 120,
@@ -16,27 +17,45 @@ const CONVERSATION = [
   '<system-reminder>\nThe user is some.one@example.com\n</system-reminder>\nThe login page times out after 5 seconds. Please fix it.',
   'I raised the login timeout to 30 seconds.',
 ]
-const PRESENTATION = { isFullscreen: true, columns: 120 }
+const TYPED = {
+  origin: { kind: 'composer' },
+  presentation: { isFullscreen: true, columns: 120 },
+} as const
+const RENAME_DELAY_MS = 300
+const REFUSAL =
+  'called from a command.run hook, it would wait on the turn this hook is holding'
 
 interface Seen {
   readonly toasts: string[]
   readonly prompts: string[]
   readonly models: string[]
+  readonly fills: string[]
+  readonly renames: string[]
+  readonly clock: MockClock
 }
 
 interface Stage {
   readonly said?: readonly string[]
-  readonly blocks?: () => boolean
+  readonly isFillRefused?: boolean
+  readonly renameRefusals?: number
 }
 
-/** Stands for the engine: the conversation, Haiku's reply to each call, the toasts. */
+/** Stands for the engine: the conversation, Haiku, the prompt box and /rename. */
 function engine(
   on: On,
   answer: (call: number) => ModelCompleteResult | 'refused',
   stage: Stage = {},
 ): Seen {
-  const seen: Seen = { toasts: [], prompts: [], models: [] }
+  const seen: Seen = {
+    toasts: [],
+    prompts: [],
+    models: [],
+    fills: [],
+    renames: [],
+    clock: mock.clock(on),
+  }
   const said = stage.said ?? CONVERSATION
+  let refusals = stage.renameRefusals ?? 0
   on('session.messages', () => ({
     value: said.map((text, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant',
@@ -54,49 +73,47 @@ function engine(
     seen.toasts.push(e.text)
     return { value: undefined }
   })
-  on('classic.UserPromptSubmit', () =>
-    stage.blocks?.() === true ? { block: 'not now' } : {},
-  )
-  on('command.run', { command: 'rename' }, (_$, e) => ({
-    text: `Session renamed to: ${e.args}`,
-  }))
-  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('prompt.fill', (_$, e) => {
+    seen.fills.push(e.text)
+    return stage.isFillRefused === true
+      ? { isFilled: false, refusal: 'no_composer', text: '', cursor: 0 }
+      : { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+  on('command.run', { command: 'rename' }, (_$, e) => {
+    seen.renames.push(e.args)
+    if (refusals > 0) {
+      refusals -= 1
+      throw new Error(REFUSAL)
+    }
+    return { text: `Session renamed to: ${e.args}` }
+  })
   return seen
 }
 
-describe('/title', () => {
-  test('asks Haiku and answers with no text, so no row is written', async ($, on) => {
+describe('/title in a conversation', () => {
+  test('Haiku names it, and /rename runs once /title has answered', async ($, on) => {
     const seen = engine(on, () => NAMED)
 
-    const answer = await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
+    const answer = await $.command.run({ command: 'title', args: '', ...TYPED })
+    const renamedEarly = [...seen.renames]
+    await seen.clock.advance(RENAME_DELAY_MS)
 
     expect(answer.text).toBeUndefined()
     expect(answer.context).toBeUndefined()
     expect(seen.models).toEqual(['haiku'])
-    expect(seen.toasts).toEqual([
-      'Your next prompt names this session: fix-login-timeout',
-    ])
+    expect(renamedEarly).toEqual([])
+    expect(seen.renames).toEqual(['fix-login-timeout'])
+    expect(seen.toasts).toEqual([])
   })
 
-  test("sends the conversation and the hint, never Claude Code's reminders", async ($, on) => {
+  test("sends the conversation, never Claude Code's reminders", async ($, on) => {
     const seen = engine(on, () => NAMED)
 
-    await $.command.run({
-      command: 'title',
-      args: 'login work',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
+    await $.command.run({ command: 'title', args: '', ...TYPED })
 
     const [prompt] = seen.prompts
     expect(prompt).toContain('times out after 5 seconds')
     expect(prompt).toContain('raised the login timeout')
-    expect(prompt).toContain("The person's hint for the title: login work")
     expect(prompt).not.toContain('some.one@example.com')
   })
 
@@ -105,121 +122,107 @@ describe('/title', () => {
       said: [CONVERSATION[0] ?? '', ...Array.from({ length: 41 }, () => '')],
     })
 
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
+    await $.command.run({ command: 'title', args: '', ...TYPED })
+    await seen.clock.advance(RENAME_DELAY_MS)
 
     expect(seen.prompts[0]).toContain('times out after 5 seconds')
-    expect(seen.toasts).toEqual([
-      'Your next prompt names this session: fix-login-timeout',
-    ])
-  })
-})
-
-describe('the name lands on the next prompt', () => {
-  test('once, with no other change to the prompt', async ($, on) => {
-    engine(on, () => NAMED)
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
-
-    const next = await $.classic.UserPromptSubmit({ prompt: 'Now add a test' })
-    const after = await $.classic.UserPromptSubmit({ prompt: 'And a README' })
-
-    expect(next).toEqual({ sessionTitle: 'fix-login-timeout' })
-    expect(after).toEqual({})
+    expect(seen.renames).toEqual(['fix-login-timeout'])
   })
 
-  test('a prompt with no name waiting passes through untouched', async ($, on) => {
-    engine(on, () => NAMED)
+  test('a /rename refused as too early is tried again', async ($, on) => {
+    const seen = engine(on, () => NAMED, { renameRefusals: 2 })
 
-    expect(await $.classic.UserPromptSubmit({ prompt: 'hello' })).toEqual({})
-  })
-
-  test('a blocked prompt keeps the name for the one after it', async ($, on) => {
-    let blocks = true
-    engine(on, () => NAMED, { blocks: () => blocks })
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
-
-    const blocked = await $.classic.UserPromptSubmit({ prompt: 'one' })
-    blocks = false
-    const passed = await $.classic.UserPromptSubmit({ prompt: 'two' })
-
-    expect(blocked).toEqual({ block: 'not now' })
-    expect(passed).toEqual({ sessionTitle: 'fix-login-timeout' })
-  })
-
-  test('a second /title replaces the first name', async ($, on) => {
-    engine(on, call =>
-      call === 0
-        ? NAMED
-        : { isAnswered: true, text: 'raise-login-timeout', usage: USAGE },
-    )
-    for (let run = 0; run < 2; run += 1) {
-      await $.command.run({
-        command: 'title',
-        args: '',
-        origin: { kind: 'composer' },
-        presentation: PRESENTATION,
-      })
+    await $.command.run({ command: 'title', args: '', ...TYPED })
+    for (let step = 0; step < 3; step += 1) {
+      await seen.clock.advance(RENAME_DELAY_MS)
     }
 
-    expect(await $.classic.UserPromptSubmit({ prompt: 'go' })).toEqual({
-      sessionTitle: 'raise-login-timeout',
-    })
+    expect(seen.renames).toEqual([
+      'fix-login-timeout',
+      'fix-login-timeout',
+      'fix-login-timeout',
+    ])
+    expect(seen.toasts).toEqual([])
   })
 
-  test('a name picked with /rename wins over the waiting one', async ($, on) => {
-    engine(on, () => NAMED)
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
+  test('after 3 refusals a toast says why', async ($, on) => {
+    const seen = engine(on, () => NAMED, { renameRefusals: 5 })
 
-    const renamed = await $.command.run({
-      command: 'rename',
-      args: 'my-own-name',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
+    await $.command.run({ command: 'title', args: '', ...TYPED })
+    for (let step = 0; step < 5; step += 1) {
+      await seen.clock.advance(RENAME_DELAY_MS)
+    }
 
-    expect(renamed.text).toBe('Session renamed to: my-own-name')
-    expect(await $.classic.UserPromptSubmit({ prompt: 'go' })).toEqual({})
-  })
-
-  test('/clear drops the waiting name', async ($, on) => {
-    engine(on, () => NAMED)
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
-
-    await $.session.end({
-      reason: 'clear',
-      sessionId: 'old-one',
-      resume: { id: 'old-one' },
-    })
-
-    expect(await $.classic.UserPromptSubmit({ prompt: 'go' })).toEqual({})
+    expect(seen.renames).toHaveLength(3)
+    expect(seen.toasts).toHaveLength(1)
+    expect(seen.toasts[0]).toMatch(/^Could not rename the session \(.+\)$/)
   })
 })
 
-describe('when no name comes, the toast says why and nothing waits', () => {
+describe('/title <name>', () => {
+  test('uses your name in kebab-case, with no Haiku call', async ($, on) => {
+    const seen = engine(on, () => NAMED)
+
+    await $.command.run({ command: 'title', args: 'New Name', ...TYPED })
+    await seen.clock.advance(RENAME_DELAY_MS)
+
+    expect(seen.models).toEqual([])
+    expect(seen.renames).toEqual(['new-name'])
+  })
+
+  test('works with nothing said yet', async ($, on) => {
+    const seen = engine(on, () => NAMED, { said: [] })
+
+    await $.command.run({
+      command: 'title',
+      args: '  Fix: Login bug! ',
+      ...TYPED,
+    })
+    await seen.clock.advance(RENAME_DELAY_MS)
+
+    expect(seen.fills).toEqual([])
+    expect(seen.renames).toEqual(['fix-login-bug'])
+  })
+
+  test('a name with no letters or digits is refused', async ($, on) => {
+    const seen = engine(on, () => NAMED)
+
+    await $.command.run({ command: 'title', args: '!!! ...', ...TYPED })
+    await seen.clock.advance(RENAME_DELAY_MS)
+
+    expect(seen.renames).toEqual([])
+    expect(seen.toasts).toEqual(['A name needs at least one letter or digit.'])
+  })
+})
+
+describe('/title with nothing said yet', () => {
+  test('puts /title in the prompt box and asks for a name', async ($, on) => {
+    const seen = engine(on, () => NAMED, {
+      said: ['<system-reminder>\nOnly context\n</system-reminder>'],
+    })
+
+    const answer = await $.command.run({ command: 'title', args: '', ...TYPED })
+    await seen.clock.advance(RENAME_DELAY_MS)
+
+    expect(answer.text).toBeUndefined()
+    expect(seen.models).toEqual([])
+    expect(seen.fills).toEqual(['/title '])
+    expect(seen.toasts).toEqual([
+      'Nothing to name yet: type a name after /title, then press Enter.',
+    ])
+    expect(seen.renames).toEqual([])
+  })
+
+  test('where no prompt box takes the text, the toast says what to run', async ($, on) => {
+    const seen = engine(on, () => NAMED, { said: [], isFillRefused: true })
+
+    await $.command.run({ command: 'title', args: '', ...TYPED })
+
+    expect(seen.toasts).toEqual(['Nothing to name yet: run /title <name>.'])
+  })
+})
+
+describe('when Haiku gives no name, a toast says why and nothing is renamed', () => {
   const cases: readonly (readonly [
     string,
     ModelCompleteResult | 'refused',
@@ -269,47 +272,13 @@ describe('when no name comes, the toast says why and nothing waits', () => {
       const answer = await $.command.run({
         command: 'title',
         args: '',
-        origin: { kind: 'composer' },
-        presentation: PRESENTATION,
+        ...TYPED,
       })
+      await seen.clock.advance(RENAME_DELAY_MS)
 
       expect(answer.text).toBeUndefined()
       expect(seen.toasts).toEqual([toast])
-      expect(await $.classic.UserPromptSubmit({ prompt: 'go' })).toEqual({})
+      expect(seen.renames).toEqual([])
     })
   }
-
-  test('a conversation with nothing said yet asks no model', async ($, on) => {
-    const seen = engine(on, () => NAMED, {
-      said: ['<system-reminder>\nOnly context\n</system-reminder>'],
-    })
-
-    await $.command.run({
-      command: 'title',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
-
-    expect(seen.models).toEqual([])
-    expect(seen.toasts).toEqual(['Nothing to name yet: send a prompt first.'])
-  })
-
-  test('a failed /title drops the name an earlier one left waiting', async ($, on) => {
-    engine(on, call =>
-      call === 0
-        ? NAMED
-        : { isAnswered: false, reason: 'empty-reply', usage: USAGE },
-    )
-    for (let run = 0; run < 2; run += 1) {
-      await $.command.run({
-        command: 'title',
-        args: '',
-        origin: { kind: 'composer' },
-        presentation: PRESENTATION,
-      })
-    }
-
-    expect(await $.classic.UserPromptSubmit({ prompt: 'go' })).toEqual({})
-  })
 })

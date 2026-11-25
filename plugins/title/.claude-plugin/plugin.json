@@ -1,7 +1,7 @@
 {
   "name": "title",
   "version": "0.1.0",
-  "description": "Adds /title: Haiku names this session from the conversation, with nothing added to Claude's context.",
+  "description": "Adds /title: Haiku names the session from the conversation, or you type a name, and the session is renamed at once. Costs no context until you use it.",
   "author": {
     "name": "lifebugz"
   }

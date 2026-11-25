@@ -4,15 +4,21 @@ import type {
   Register,
 } from 'claude-code'
 
-import { buildNameRequest, excerptOf, parseName } from './naming'
+import { buildNameRequest, excerptOf, kebabCase, parseName } from './naming'
 
 const TOAST_MS = 8000
 const NAME_TIMEOUT_MS = 15000
+// Claude Code refuses $.command.run from inside a command.run hook ("it would
+// wait on the turn this hook is holding"), so /rename starts once /title has
+// answered, and again if that was still too early.
+const RENAME_DELAY_MS = 300
+const RENAME_TRIES = 3
+const ASK_TEXT = '/title '
 
-// No $ call sets a session's title. A classic UserPromptSubmit hook's
-// sessionTitle is the only route that adds no row for the model, so the name
-// waits here for the next prompt.
-let pendingName: string | undefined
+type Naming =
+  | { readonly kind: 'named'; readonly name: string }
+  | { readonly kind: 'ask' }
+  | { readonly kind: 'failed'; readonly toast: string }
 
 function reasonOf(error: unknown, plugin: string): string {
   const text = error instanceof Error ? error.message : String(error)
@@ -33,11 +39,10 @@ function failureOf(reply: ModelCompleteResult): string {
     : `no answer within ${String(NAME_TIMEOUT_MS / 1000)} s`
 }
 
-async function askForName($: EngineInterface, hint: string): Promise<string> {
-  pendingName = undefined
+async function nameFromConversation($: EngineInterface): Promise<Naming> {
   const excerpt = excerptOf(await $.session.messages())
   if (excerpt === '') {
-    return 'Nothing to name yet: send a prompt first.'
+    return { kind: 'ask' }
   }
   let reply: ModelCompleteResult
   try {
@@ -46,58 +51,91 @@ async function askForName($: EngineInterface, hint: string): Promise<string> {
       effort: 'low',
       maxTokens: 64,
       timeoutMs: NAME_TIMEOUT_MS,
-      ...buildNameRequest(excerpt, hint),
+      ...buildNameRequest(excerpt),
     })
   } catch (error) {
-    return `Haiku could not name it (${reasonOf(error, $.plugin.name)})`
+    return {
+      kind: 'failed',
+      toast: `Haiku could not name it (${reasonOf(error, $.plugin.name)})`,
+    }
   }
   if (!reply.isAnswered) {
-    return `Haiku could not name it (${failureOf(reply)})`
+    return {
+      kind: 'failed',
+      toast: `Haiku could not name it (${failureOf(reply)})`,
+    }
   }
   const name = parseName(reply.text)
-  if (name === undefined) {
-    return "Haiku's reply was not a usable name."
+  return name === undefined
+    ? { kind: 'failed', toast: "Haiku's reply was not a usable name." }
+    : { kind: 'named', name }
+}
+
+function nameFromTyped(typed: string): Naming {
+  const name = kebabCase(typed)
+  return name === ''
+    ? { kind: 'failed', toast: 'A name needs at least one letter or digit.' }
+    : { kind: 'named', name }
+}
+
+async function askForName($: EngineInterface): Promise<void> {
+  const { isFilled } = await $.prompt.fill({ text: ASK_TEXT })
+  $.ui.toast(
+    isFilled
+      ? 'Nothing to name yet: type a name after /title, then press Enter.'
+      : 'Nothing to name yet: run /title <name>.',
+    { timeoutMs: TOAST_MS },
+  )
+}
+
+function renameSoon($: EngineInterface, name: string, tries: number): void {
+  $.clock.after(RENAME_DELAY_MS, () => {
+    void rename($, name, tries)
+  })
+}
+
+async function rename(
+  $: EngineInterface,
+  name: string,
+  tries: number,
+): Promise<void> {
+  try {
+    await $.command.run({ command: 'rename', args: name })
+  } catch (error) {
+    if (tries > 1) {
+      renameSoon($, name, tries - 1)
+      return
+    }
+    $.ui.toast(
+      `Could not rename the session (${reasonOf(error, $.plugin.name)})`,
+      { timeoutMs: TOAST_MS },
+    )
   }
-  pendingName = name
-  return `Your next prompt names this session: ${name}`
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'title',
-      description: 'Name this session with Haiku, from the conversation so far',
-      argumentHint: '[hint]',
+      description:
+        'Name this session: Haiku picks a name from the conversation, or give your own',
+      argumentHint: '[name]',
     })
     return next(e)
   })
 
-  // An answer with no text and no context is the one a command leaves no row
-  // for, so the toast carries the outcome.
+  // No text and no context: Claude Code then keeps no row for the /title line.
   on('command.run', { command: 'title' }, async ($, e) => {
-    $.ui.toast(await askForName($, e.args), { timeoutMs: TOAST_MS })
-    return {}
-  })
-
-  // A name the person picks with /rename after /title wins over Haiku's.
-  on('command.run', { command: 'rename' }, async (_$, e, next) => {
-    pendingName = undefined
-    return next(e)
-  })
-
-  on('classic.UserPromptSubmit', async (_$, e, next) => {
-    const result = await next(e)
-    if (pendingName === undefined || result.block !== undefined) {
-      return result
+    const typed = e.args.trim()
+    const naming =
+      typed === '' ? await nameFromConversation($) : nameFromTyped(typed)
+    if (naming.kind === 'named') {
+      renameSoon($, naming.name, RENAME_TRIES)
+    } else if (naming.kind === 'ask') {
+      await askForName($)
+    } else {
+      $.ui.toast(naming.toast, { timeoutMs: TOAST_MS })
     }
-    const sessionTitle = pendingName
-    pendingName = undefined
-    return { ...result, sessionTitle }
-  })
-
-  // After /clear the name would land on a new, empty conversation.
-  on('session.end', async (_$, e, next) => {
-    pendingName = undefined
-    return next(e)
+    return {}
   })
 }
