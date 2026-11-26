@@ -21,7 +21,6 @@ const TYPED = {
   origin: { kind: 'composer' },
   presentation: { isFullscreen: true, columns: 120 },
 } as const
-const RENAME_DELAY_MS = 300
 const REFUSAL =
   'called from a command.run hook, it would wait on the turn this hook is holding'
 
@@ -111,7 +110,7 @@ describe('/title in a conversation', () => {
 
     const answer = await $.command.run({ command: 'title', args: '', ...TYPED })
     const renamedEarly = [...seen.renames]
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(answer.text).toBeUndefined()
     expect(answer.context).toBeUndefined()
@@ -138,7 +137,7 @@ describe('/title in a conversation', () => {
     })
 
     await $.command.run({ command: 'title', args: '', ...TYPED })
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(seen.prompts[0]).toContain('times out after 5 seconds')
     expect(seen.renames).toEqual(['fix-login-timeout'])
@@ -149,7 +148,7 @@ describe('/title in a conversation', () => {
 
     await $.command.run({ command: 'title', args: '', ...TYPED })
     for (let step = 0; step < 3; step += 1) {
-      await seen.clock.advance(RENAME_DELAY_MS)
+      await seen.clock.advance(0)
     }
 
     expect(seen.renames).toEqual([
@@ -165,7 +164,7 @@ describe('/title in a conversation', () => {
 
     await $.command.run({ command: 'title', args: '', ...TYPED })
     for (let step = 0; step < 5; step += 1) {
-      await seen.clock.advance(RENAME_DELAY_MS)
+      await seen.clock.advance(0)
     }
 
     expect(seen.renames).toHaveLength(3)
@@ -179,7 +178,7 @@ describe('/title <name>', () => {
     const seen = engine(on, () => NAMED)
 
     await $.command.run({ command: 'title', args: 'New Name', ...TYPED })
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(seen.models).toEqual([])
     expect(seen.renames).toEqual(['new-name'])
@@ -193,7 +192,7 @@ describe('/title <name>', () => {
       args: '  Fix: Login bug! ',
       ...TYPED,
     })
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(seen.fills).toEqual([])
     expect(seen.renames).toEqual(['fix-login-bug'])
@@ -203,7 +202,7 @@ describe('/title <name>', () => {
     const seen = engine(on, () => NAMED)
 
     await $.command.run({ command: 'title', args: '!!! ...', ...TYPED })
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(seen.renames).toEqual([])
     expect(seen.toasts).toEqual(['A name needs at least one letter or digit.'])
@@ -217,7 +216,7 @@ describe('/title with nothing said yet', () => {
     })
 
     const answer = await $.command.run({ command: 'title', args: '', ...TYPED })
-    await seen.clock.advance(RENAME_DELAY_MS)
+    await seen.clock.advance(0)
 
     expect(answer.text).toBeUndefined()
     expect(seen.models).toEqual([])
@@ -289,7 +288,7 @@ describe('when Haiku gives no name, a toast says why and nothing is renamed', ()
         args: '',
         ...TYPED,
       })
-      await seen.clock.advance(RENAME_DELAY_MS)
+      await seen.clock.advance(0)
 
       expect(answer.text).toBeUndefined()
       expect(seen.toasts).toEqual([toast])

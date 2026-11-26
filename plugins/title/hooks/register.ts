@@ -8,10 +8,6 @@ import { buildNameRequest, excerptOf, kebabCase, parseName } from './naming'
 
 const TOAST_MS = 8000
 const NAME_TIMEOUT_MS = 15000
-// Claude Code refuses $.command.run from inside a command.run hook ("it would
-// wait on the turn this hook is holding"), so /rename starts once /title has
-// answered, and again if that was still too early.
-const RENAME_DELAY_MS = 300
 const RENAME_TRIES = 3
 const ASK_TEXT = '/title '
 
@@ -89,7 +85,11 @@ async function askForName($: EngineInterface): Promise<void> {
 }
 
 function renameSoon($: EngineInterface, name: string, tries: number): void {
-  $.clock.after(RENAME_DELAY_MS, () => {
+  // Claude Code refuses $.command.run while /title's hook is still running
+  // ("it would wait on the turn this hook is holding"). Even at 0 ms the timer
+  // is a round trip through Claude Code, so it fires after /title has answered;
+  // the retries cover a time it would not.
+  $.clock.after(0, () => {
     void rename($, name, tries)
   })
 }
